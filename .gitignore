@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+
+# Environments
+.env
+*.env
+venv/
+ENV/
+.venv/
+gbu_no_dues/
+
+# IDEs
+.vscode/
+.idea/
+
+# Byte-compiled / C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# PyCharm
+*.iml
+
+# Uvicorn reload cache
+*.pyc
+
+# Cache
+.cache/
+.mypy_cache/
+.pytest_cache/
+
+# Generated folders
+ htmlcov/
+ coverage.xml
