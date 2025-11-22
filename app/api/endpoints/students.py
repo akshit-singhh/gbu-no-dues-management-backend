@@ -1,10 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+# app/api/endpoints/students.py
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db_session, get_current_user
-from app.models.user import User
-from app.schemas.student import StudentCreate, StudentRead
-from app.services.student_service import create_student, get_student_by_id, list_students
+from app.api.deps import get_db_session
+from app.core.rbac import AllowRoles
+from app.models.user import User, UserRole
+from app.schemas.student import StudentRegister, StudentRead
+from app.schemas.auth_student import StudentLoginRequest, StudentLoginResponse
+from app.services.student_service import (
+    register_student_and_user,
+    get_student_by_id,
+    list_students,
+)
+from app.services.auth_service import authenticate_student
 
 
 router = APIRouter(
@@ -14,48 +23,56 @@ router = APIRouter(
 
 
 # ------------------------------------------------------------
-# CREATE STUDENT (Allowed: student, super_admin)
+# STUDENT LOGIN  (kept inside students router)
 # ------------------------------------------------------------
-@router.post("/", response_model=StudentRead)
-async def create_student_endpoint(
-    data: StudentCreate,
-    session: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(get_current_user)
+@router.post("/login", response_model=StudentLoginResponse)
+async def student_login(
+    data: StudentLoginRequest,
+    session: AsyncSession = Depends(get_db_session)
 ):
-    if current_user.role not in ["student", "super_admin"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Only Students or Super Admin can create student records"
-        )
+    auth = await authenticate_student(session, data.identifier, data.password)
 
-    student = await create_student(session, data)
-    return student
+
+    if not auth:
+        raise HTTPException(status_code=401, detail="Invalid Enrollment/Roll Number or password")
+
+    return auth
 
 
 # ------------------------------------------------------------
-# GET STUDENT BY ID
+# STUDENT SELF-REGISTRATION (PUBLIC)
 # ------------------------------------------------------------
-@router.get("/{student_id}", response_model=StudentRead)
-async def get_student(
-    student_id: str,
+@router.post("/register", response_model=StudentRead, status_code=status.HTTP_201_CREATED)
+async def register_student(
+    data: StudentRegister,
     session: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(get_current_user)
 ):
-    student = await get_student_by_id(session, student_id)
+
+    if data.password != data.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    try:
+        student = await register_student_and_user(session, data)
+        return StudentRead.from_orm(student)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ------------------------------------------------------------
+# GET "MY PROFILE" (student or super admin)
+# ------------------------------------------------------------
+@router.get("/me", response_model=StudentRead)
+async def get_my_student_profile(
+    current_user: User = Depends(AllowRoles(UserRole.Student, UserRole.Admin)),
+    session: AsyncSession = Depends(get_db_session),
+):
+
+    if not current_user.student_id:
+        raise HTTPException(status_code=404, detail="Student profile not linked")
+
+    student = await get_student_by_id(session, current_user.student_id)
     if not student:
-        raise HTTPException(404, "Student not found")
-    return student
+        raise HTTPException(status_code=404, detail="Student not found")
 
-
-# ------------------------------------------------------------
-# LIST ALL STUDENTS (Super Admin only)
-# ------------------------------------------------------------
-@router.get("/", response_model=list[StudentRead])
-async def list_all_students(
-    session: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(get_current_user)
-):
-    if current_user.role != "super_admin":
-        raise HTTPException(403, "Only Super Admin can list all students")
-
-    return await list_students(session)
+    return StudentRead.from_orm(student)
