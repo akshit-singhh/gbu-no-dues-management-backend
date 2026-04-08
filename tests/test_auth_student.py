@@ -12,7 +12,11 @@ async def test_student_login_flow(client):
     password = "securePassword123"
 
     # 1. Login Fail
-    fail_payload = {"identifier": unique_roll, "password": password}
+    fail_payload = {
+        "identifier": unique_roll,
+        "password": password,
+        "turnstile_token": "test-turnstile-token",
+    }
     res_fail = await client.post("/api/students/login", json=fail_payload)
     assert res_fail.status_code == 401
     

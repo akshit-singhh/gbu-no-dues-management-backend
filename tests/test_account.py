@@ -13,6 +13,7 @@ async def test_change_password_success(client, db_session):
     """
     # 0. Setup School (Required for Registration)
     school = School(name="Account School", dean_name="Dr. Account")
+    school.code = f"SO{uuid.uuid4().hex[:6].upper()}"
     db_session.add(school)
     await db_session.commit()
 
@@ -28,7 +29,9 @@ async def test_change_password_success(client, db_session):
         "email": unique_email,
         "password": "oldpassword123",
         "confirm_password": "oldpassword123",
-        "school_id": school.id  # ✅ Added missing field
+        "school_code": school.code,
+        "school_id": school.id,
+        "turnstile_token": "test-turnstile-token"
     }
 
     # 2. Register
@@ -38,7 +41,8 @@ async def test_change_password_success(client, db_session):
     # 3. Login
     login_res = await client.post("/api/students/login", json={
         "identifier": unique_roll,
-        "password": "oldpassword123"
+        "password": "oldpassword123",
+        "turnstile_token": "test-turnstile-token"
     })
     assert login_res.status_code == 200
     token = login_res.json()["access_token"]
@@ -47,8 +51,7 @@ async def test_change_password_success(client, db_session):
     # 4. Change Password
     change_payload = {
         "old_password": "oldpassword123",
-        "new_password": "newpassword456",
-        "confirm_password": "newpassword456"
+        "new_password": "newpassword456"
     }
     change_res = await client.post("/api/account/change-password", json=change_payload, headers=headers)
     assert change_res.status_code == 200
@@ -56,7 +59,8 @@ async def test_change_password_success(client, db_session):
     # 5. Login with New Password
     login_new = await client.post("/api/students/login", json={
         "identifier": unique_roll,
-        "password": "newpassword456"
+        "password": "newpassword456",
+        "turnstile_token": "test-turnstile-token"
     })
     assert login_new.status_code == 200
 
@@ -67,6 +71,7 @@ async def test_change_password_invalid_old(client, db_session):
     """
     # 0. Setup School
     school = School(name="Account School 2", dean_name="Dr. Account")
+    school.code = f"SO{uuid.uuid4().hex[:6].upper()}"
     db_session.add(school)
     await db_session.commit()
 
@@ -82,14 +87,17 @@ async def test_change_password_invalid_old(client, db_session):
         "email": unique_email,
         "password": "securepassword",
         "confirm_password": "securepassword",
-        "school_id": school.id # ✅ Added
+        "school_code": school.code,
+        "school_id": school.id,
+        "turnstile_token": "test-turnstile-token"
     }
 
     # 2. Register & Login
     await client.post("/api/students/register", json=student_payload)
     login_res = await client.post("/api/students/login", json={
         "identifier": unique_roll,
-        "password": "securepassword"
+        "password": "securepassword",
+        "turnstile_token": "test-turnstile-token"
     })
     token = login_res.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -97,8 +105,7 @@ async def test_change_password_invalid_old(client, db_session):
     # 3. Try changing with WRONG old password
     change_payload = {
         "old_password": "WRONGpassword",
-        "new_password": "newpassword456",
-        "confirm_password": "newpassword456"
+        "new_password": "newpassword456"
     }
     res = await client.post("/api/account/change-password", json=change_payload, headers=headers)
     assert res.status_code == 400

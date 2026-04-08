@@ -12,7 +12,7 @@ def random_str(prefix="", length=6):
 @pytest.mark.asyncio
 async def test_department_staff_can_view_pending(client, db_session):
     # 1. Department
-    library_dept = Department(name="Library", phase_number=2)
+    library_dept = Department(name="Library", code="LIBTEST", phase_number=2)
     db_session.add(library_dept)
     await db_session.commit()
     await db_session.refresh(library_dept)

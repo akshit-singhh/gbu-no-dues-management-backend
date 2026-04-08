@@ -14,7 +14,7 @@ async def test_admin_login_flow(client, db_session):
     plain_password = "SecureAdminPassword123!"
 
     # 1. Login Fail
-    fail_payload = {"email": unique_email, "password": plain_password}
+    fail_payload = {"email": unique_email, "password": plain_password, "turnstile_token": "test-turnstile-token"}
     res_fail = await client.post("/api/admin/login", json=fail_payload)
     assert res_fail.status_code == 401
     # ✅ FIX: Match actual API response
@@ -33,7 +33,7 @@ async def test_admin_login_flow(client, db_session):
     await db_session.commit()
 
     # 3. Login Success
-    success_payload = {"email": unique_email, "password": plain_password}
+    success_payload = {"email": unique_email, "password": plain_password, "turnstile_token": "test-turnstile-token"}
     res_success = await client.post("/api/admin/login", json=success_payload)
     assert res_success.status_code == 200
     assert "access_token" in res_success.json()

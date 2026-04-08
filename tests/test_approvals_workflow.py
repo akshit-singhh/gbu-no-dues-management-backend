@@ -14,27 +14,31 @@ async def test_dean_approval_moves_to_next_stage(client, db_session):
     db_session.add(school)
     await db_session.commit()
 
-    # B. Create Student Profile FIRST
+    # B. Create Student User FIRST
+    student_user = User(
+        email="workflow_student@uni.edu",
+        name="Workflow Student",
+        role=UserRole.Student,
+        password_hash="hashed_pw",
+        is_active=True
+    )
+    db_session.add(student_user)
+    await db_session.commit()
+
+    # C. Create Student Profile LINKED to User
     student_profile = Student(
         full_name="Workflow Student",
         email="workflow_student@uni.edu",
         enrollment_number="WORK100",
         roll_number="ROLL_WORK",
         school_id=school.id,
-        mobile_number="9999999999"
+        mobile_number="9999999999",
+        user_id=student_user.id,
     )
     db_session.add(student_profile)
     await db_session.commit()
 
-    # C. Create Student User LINKED to Profile
-    student_user = User(
-        email="workflow_student@uni.edu",
-        name="Workflow Student",
-        role=UserRole.Student,
-        password_hash="hashed_pw",
-        is_active=True,
-        student_id=student_profile.id # ✅ Critical Link
-    )
+    student_user.student_id = student_profile.id
     db_session.add(student_user)
     await db_session.commit()
 

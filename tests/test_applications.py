@@ -5,6 +5,7 @@ from app.core.security import create_access_token
 from app.models.student import Student
 from app.models.user import User
 from app.models.school import School
+from app.models.department import Department
 
 VALID_PAYLOAD = {
     "proof_document_url": "uuid-123/file.pdf",
@@ -29,7 +30,12 @@ VALID_PAYLOAD = {
 async def test_create_application_success(client, db_session):
     # 0. Seed School (Required Constraint)
     school = School(name="App School", dean_name="Dean")
+    school.code = "SOAPP"
     db_session.add(school)
+    await db_session.commit()
+
+    dept = Department(name="App CSE", code="CSEAPP", phase_number=1, school_id=school.id)
+    db_session.add(dept)
     await db_session.commit()
 
     # 1. Seed User
@@ -44,6 +50,7 @@ async def test_create_application_success(client, db_session):
         enrollment_number="EN123", 
         roll_number="RN123", 
         mobile_number="9999999999",
+        user_id=user.id,
         school_id=school.id 
     )
     db_session.add(student)
@@ -61,13 +68,16 @@ async def test_create_application_success(client, db_session):
     headers = {"Authorization": f"Bearer {token}"}
 
     # 5. API Call
-    response = await client.post("/api/applications/create", json=VALID_PAYLOAD, headers=headers)
+    payload = dict(VALID_PAYLOAD)
+    payload["department_code"] = dept.code
+    response = await client.post("/api/applications/create", json=payload, headers=headers)
     assert response.status_code == 201
 
 @pytest.mark.asyncio
 async def test_get_my_application_signed_url(client, db_session):
     # 0. Seed School
     school = School(name="Signed School", dean_name="Dean")
+    school.code = "SOSIG"
     db_session.add(school)
     await db_session.commit()
 
@@ -83,6 +93,7 @@ async def test_get_my_application_signed_url(client, db_session):
         enrollment_number="S100",
         roll_number="R100",
         mobile_number="123",
+        user_id=user.id,
         school_id=school.id
     )
     db_session.add(student)
@@ -106,7 +117,12 @@ async def test_get_my_application_signed_url(client, db_session):
 async def test_create_duplicate_fails(client, db_session):
     # 0. Seed School
     school = School(name="Dup School", dean_name="Dean")
+    school.code = "SODUP"
     db_session.add(school)
+    await db_session.commit()
+
+    dept = Department(name="Dup CSE", code="CSEDUP", phase_number=1, school_id=school.id)
+    db_session.add(dept)
     await db_session.commit()
 
     # 1. Setup User 
@@ -121,6 +137,7 @@ async def test_create_duplicate_fails(client, db_session):
         enrollment_number="D1", 
         roll_number="R1", 
         mobile_number="123",
+        user_id=user.id,
         school_id=school.id
     )
     db_session.add(stu)
@@ -137,8 +154,10 @@ async def test_create_duplicate_fails(client, db_session):
     headers = {"Authorization": f"Bearer {token}"}
     
     # Create App 1
-    await client.post("/api/applications/create", json=VALID_PAYLOAD, headers=headers)
+    payload = dict(VALID_PAYLOAD)
+    payload["department_code"] = dept.code
+    await client.post("/api/applications/create", json=payload, headers=headers)
     
     # Create App 2 (Fail)
-    res = await client.post("/api/applications/create", json=VALID_PAYLOAD, headers=headers)
+    res = await client.post("/api/applications/create", json=payload, headers=headers)
     assert res.status_code == 400

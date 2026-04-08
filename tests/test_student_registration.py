@@ -1,6 +1,7 @@
 import pytest
 import random
 import string
+from app.models.school import School
 
 def random_number(length=10):
     return ''.join(random.choices(string.digits, k=length))
@@ -9,7 +10,11 @@ def random_string(length=5):
     return ''.join(random.choices(string.ascii_letters, k=length))
 
 @pytest.mark.asyncio
-async def test_student_register_success(client):
+async def test_student_register_success(client, db_session):
+    school = School(name=f"School {random_string()}", code=f"SO{random_number(4)}")
+    db_session.add(school)
+    await db_session.commit()
+
     enrollment = random_number(10)
     email = f"test.{random_string()}@example.com"
     
@@ -21,12 +26,9 @@ async def test_student_register_success(client):
         "email": email,
         "password": "password123",
         "confirm_password": "password123",
-        # ✅ FIX: Add required fields
-        "school_id": "1", 
-        "batch": "2022-2026",
-        "section": "A",
-        "admission_year": 2022,
-        "admission_type": "Regular"
+        "school_code": school.code,
+        "school_id": school.id,
+        "turnstile_token": "test-turnstile-token",
     }
 
     res = await client.post("/api/students/register", json=payload)
@@ -36,10 +38,14 @@ async def test_student_register_success(client):
 
     assert res.status_code == 201
     data = res.json()
-    assert data["email"] == email
+    assert data["student"]["email"] == email
 
 @pytest.mark.asyncio
-async def test_student_register_duplicate(client):
+async def test_student_register_duplicate(client, db_session):
+    school = School(name=f"School {random_string()}", code=f"SO{random_number(4)}")
+    db_session.add(school)
+    await db_session.commit()
+
     # Setup data
     enrollment = random_number(10)
     email = f"dup.{random_string()}@example.com"
@@ -53,11 +59,9 @@ async def test_student_register_duplicate(client):
         "email": email,
         "password": "password123",
         "confirm_password": "password123",
-        "school_id": "1", # ✅ FIX
-        "batch": "2025",
-        "section": "B",
-        "admission_year": 2022,
-        "admission_type": "Regular"
+        "school_code": school.code,
+        "school_id": school.id,
+        "turnstile_token": "test-turnstile-token",
     }
     
     # 1. Register Success

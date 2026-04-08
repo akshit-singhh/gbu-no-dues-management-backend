@@ -1,5 +1,6 @@
 import pytest
 from app.models.user import User, UserRole
+from app.models.department import Department
 from app.core.security import create_access_token
 
 @pytest.mark.asyncio
@@ -13,14 +14,18 @@ async def test_admin_create_user(client, db_session):
     admin_token = create_access_token(subject=str(admin.id), data={"role": "admin"})
     headers = {"Authorization": f"Bearer {admin_token}"}
 
+    dept = Department(name="Users Test Dept", code="UTD", phase_number=2)
+    db_session.add(dept)
+    await db_session.commit()
+
     payload = {
         "name": "Test Staff",
         "email": "staff_new@test.com",
         "password": "pw",
         "role": "staff",
-        "is_active": True
+        "department_code": dept.code
     }
-    res = await client.post("/api/users/", json=payload, headers=headers)
+    res = await client.post("/api/admin/register-user", json=payload, headers=headers)
     assert res.status_code == 201
 
 @pytest.mark.asyncio

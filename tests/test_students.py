@@ -1,6 +1,7 @@
 import pytest
 import uuid
 from app.models.user import User, UserRole
+from app.models.student import Student
 from app.models.school import School
 from app.core.security import create_access_token
 
@@ -11,6 +12,7 @@ def random_str(prefix):
 async def test_admin_list_students_flow(client, db_session):
     # 0. Setup School
     school = School(name="List School", dean_name="Dean")
+    school.code = "SOLIST"
     db_session.add(school)
     
     # 1. Setup Admin User
@@ -18,55 +20,81 @@ async def test_admin_list_students_flow(client, db_session):
     db_session.add(admin)
     await db_session.commit()
 
-    # 2. Register a Student (Needs valid School ID)
+    # 2. Seed linked Student User and Profile directly
     unique_roll = random_str("ROLL")
-    await client.post("/api/students/register", json={
-        "enrollment_number": random_str("ENR"),
-        "roll_number": unique_roll,
-        "full_name": "List Test Student",
-        "mobile_number": "1234567890",
-        "email": f"{unique_roll}@test.com",
-        "password": "pw",
-        "confirm_password": "pw",
-        "school_id": school.id # ✅ Added
-    })
+    student_user = User(
+        name="List Test Student",
+        email=f"{unique_roll}@test.com",
+        role=UserRole.Student,
+        password_hash="pw",
+        school_id=school.id,
+    )
+    db_session.add(student_user)
+    await db_session.commit()
+
+    student = Student(
+        enrollment_number=random_str("ENR"),
+        roll_number=unique_roll,
+        full_name="List Test Student",
+        mobile_number="1234567890",
+        email=student_user.email,
+        school_id=school.id,
+        user_id=student_user.id,
+    )
+    db_session.add(student)
+    await db_session.commit()
+
+    student_user.student_id = student.id
+    db_session.add(student_user)
+    await db_session.commit()
 
     # 3. Use Admin Token
     admin_token = create_access_token(subject=str(admin.id), data={"role": "admin"})
     headers = {"Authorization": f"Bearer {admin_token}"}
 
     # 4. Call Endpoint
-    res = await client.get("/api/admin/students", headers=headers)
+    res = await client.get(f"/api/admin/students/{unique_roll}", headers=headers)
     assert res.status_code == 200
 
 @pytest.mark.asyncio
 async def test_student_get_my_profile(client, db_session):
     # 0. Setup School
     school = School(name="Profile School", dean_name="Dean")
+    school.code = "SOPROF"
     db_session.add(school)
     await db_session.commit()
 
     unique_roll = random_str("ME")
     email = f"{unique_roll}@me.com"
 
-    # 1. Register with School ID
-    reg_res = await client.post("/api/students/register", json={
-        "enrollment_number": random_str("ENR"),
-        "roll_number": unique_roll,
-        "full_name": "Profile Tester",
-        "mobile_number": "0000000000",
-        "email": email,
-        "password": "pw", "confirm_password": "pw",
-        "school_id": school.id # ✅ Added
-    })
-    assert reg_res.status_code == 201 # Ensure registration worked
+    # 1. Seed linked Student User and Profile directly
+    student_user = User(
+        name="Profile Tester",
+        email=email,
+        role=UserRole.Student,
+        password_hash="pw",
+        school_id=school.id,
+    )
+    db_session.add(student_user)
+    await db_session.commit()
 
-    # 2. Login
-    login_res = await client.post("/api/students/login", json={
-        "identifier": unique_roll, "password": "pw"
-    })
-    assert login_res.status_code == 200
-    token = login_res.json()["access_token"]
+    student = Student(
+        enrollment_number=random_str("ENR"),
+        roll_number=unique_roll,
+        full_name="Profile Tester",
+        mobile_number="0000000000",
+        email=email,
+        school_id=school.id,
+        user_id=student_user.id,
+    )
+    db_session.add(student)
+    await db_session.commit()
+
+    student_user.student_id = student.id
+    db_session.add(student_user)
+    await db_session.commit()
+
+    token = create_access_token(subject=str(student_user.id), data={"role": "student"})
     
     # 3. Get Profile
     headers = {"Authorization": f"Bearer {token}"}
@@ -75,5 +103,5 @@ async def test_student_get_my_profile(client, db_session):
 
 @pytest.mark.asyncio
 async def test_students_unauthorized_routes(client):
-    res_list = await client.get("/api/admin/students")
+    res_list = await client.get("/api/admin/students/UNKNOWN_ROLL")
     assert res_list.status_code == 403 # Expect 403

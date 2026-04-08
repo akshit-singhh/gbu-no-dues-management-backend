@@ -12,6 +12,7 @@ from app.core.security import get_password_hash
 async def test_certificate_verification_success(client, db_session):
     # 0. Setup School
     school = School(name="Cert School", dean_name="Dean")
+    school.code = "SOCERT"
     db_session.add(school)
     await db_session.commit()
 
@@ -21,9 +22,19 @@ async def test_certificate_verification_success(client, db_session):
     cert_id = uuid.uuid4()
     cert_number = "GBU-TEST-2026"
 
+    user = User(
+        name="Verified Student",
+        email="verify@test.com",
+        role=UserRole.Student,
+        password_hash=get_password_hash("pw"),
+    )
+    db_session.add(user)
+    await db_session.commit()
+
     # Create Student
     student = Student(
         id=student_id,
+        user_id=user.id,
         enrollment_number="VERIFY100",
         roll_number="VERIFY_ROLL",
         full_name="Verified Student",
@@ -77,5 +88,8 @@ async def test_password_reset_flow(client, db_session):
     await db_session.commit()
 
     # 2. Request OTP
-    res_req = await client.post("/api/verification/forgot-password", json={"email": email})
+    res_req = await client.post(
+        "/api/verification/forgot-password",
+        json={"email": email, "turnstile_token": "test-turnstile-token"},
+    )
     assert res_req.status_code == 200
