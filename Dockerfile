@@ -80,14 +80,6 @@ EXPOSE 8000
 # Start Command
 # ------------------------------------------------------------
 # Using JSON format for better signal handling (SIGTERM)
-CMD [
-    "gunicorn",
-    "app.main:app",
-    "--workers", "1",
-    "--worker-class", "uvicorn.workers.UvicornWorker",
-    "--bind", "0.0.0.0:8000",
-    "--timeout", "120",
-    "--forwarded-allow-ips=*",
-    "--access-logfile", "-",
-    "--error-logfile", "-"
-]
+# Using shell form (can split lines)
+# Using JSON format for better signal handling (SIGTERM)
+CMD ["gunicorn", "app.main:app", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120", "--forwarded-allow-ips=*", "--access-logfile", "-", "--error-logfile", "-"]
