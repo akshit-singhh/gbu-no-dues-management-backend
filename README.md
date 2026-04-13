@@ -61,6 +61,15 @@ This API powers the full no-dues lifecycle:
 - DB_SSL_VERIFY
 - SUPABASE_URL
 - SUPABASE_KEY
+- JOB_SECRET
+- STORAGE (or STORAGE_BACKEND)
+- FTP_HOST
+- FTP_PORT
+- FTP_USER
+- FTP_PASSWORD
+- FTP_PASSIVE_MODE
+- FTP_USE_TLS
+- FTP_CERTIFICATE_DIR
 
 ### Notes
 
@@ -189,6 +198,15 @@ This section lists all mounted API endpoints from app/main.py.
 | GET    | /api/admin/system-logs                  | Admin          | System/security logs              |
 | GET    | /api/admin/audit-logs                   | Admin          | Business audit logs               |
 
+### 8.2.1 Admin behavior notes
+
+- `GET /api/admin/users` now supports pagination query params: `page` (default `1`) and `page_size` (default `50`, max `200`), plus optional `role` filter.
+- Deletion safety checks are enforced before destructive operations:
+  - schools cannot be deleted if linked departments/users exist
+  - departments cannot be deleted if linked students/users exist
+  - programmes cannot be deleted if linked students/specializations exist
+  - specializations cannot be deleted if linked students exist
+
 ## 8.3 Student Auth and Profile
 
 | Method | Path                   | Auth           | Purpose                           |
@@ -263,14 +281,35 @@ This section lists all mounted API endpoints from app/main.py.
 
 ## 8.11 Jobs and Metrics
 
-| Method | Path                                  | Auth                   | Purpose                     |
-| ------ | ------------------------------------- | ---------------------- | --------------------------- |
-| POST   | /api/jobs/trigger-stale-notifications | Secret key query param | Trigger reminder job        |
-| GET    | /api/metrics/health                   | Public                 | Service health detail       |
-| GET    | /api/metrics/dashboard-stats          | Admin                  | Dashboard counters          |
-| GET    | /api/metrics/redis-stats              | Admin                  | Redis diagnostics           |
-| GET    | /api/metrics/traffic-stats            | Admin                  | Route hit stats             |
-| POST   | /api/metrics/clear-cache              | Admin                  | Clear limiter/traffic cache |
+| Method | Path                                  | Auth                | Purpose                    |
+| ------ | ------------------------------------- | ------------------- | -------------------------- |
+| POST   | /api/jobs/trigger-stale-notifications | X-Job-Secret header | Trigger reminder job       |
+| GET    | /api/metrics/health                   | Public              | Minimal liveness check     |
+| GET    | /api/metrics/health/details           | Admin               | Infra diagnostics + uptime |
+| GET    | /api/metrics/dashboard-stats          | Admin               | Dashboard counters         |
+| GET    | /api/metrics/redis-stats              | Admin               | Redis diagnostics          |
+| GET    | /api/metrics/traffic-stats            | Admin               | Route hit stats            |
+| POST   | /api/metrics/clear-cache              | Admin               | Clear scoped Redis caches  |
+
+### 8.11.1 Metrics behavior notes
+
+- `GET /api/metrics/health` returns only `{ "status": "ok" }` and is safe for public probes.
+- `GET /api/metrics/health/details` is admin-only and reports database/Redis/SMTP connectivity, latency fields, uptime, and environment.
+- `POST /api/metrics/clear-cache` now supports scoped clearing via query param `scope`:
+  - `rate_limits` clears `LIMITER/*`
+  - `traffic` clears `TRAFFIC:*`
+- Global flush behavior is intentionally removed to avoid deleting unrelated Redis state.
+
+### 8.11.2 Jobs behavior notes
+
+- `POST /api/jobs/trigger-stale-notifications` now requires the `X-Job-Secret` header (validated against `JOB_SECRET`) and no longer uses a query parameter secret.
+- The stale notification job batches lookups and consolidates pending counts so each verifier receives one aggregated reminder email.
+- Job response now includes grouped counters: `groups_found`, `groups_skipped`, `groups_processed`, and `emails_queued`.
+
+## 8.13 Service internals updates
+
+- Email service now uses a bounded thread pool for SMTP operations, shared Jinja environment reuse, and stricter logging/validation paths.
+- Certificate PDF generation now enforces a PDF size limit before upload, performs non-blocking executor offloading for render/upload steps, and supports both FTP and Supabase backends through runtime storage config.
 
 ## 8.12 Note on Academic Endpoints
 

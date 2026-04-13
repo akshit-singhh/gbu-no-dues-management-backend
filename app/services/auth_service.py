@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 from loguru import logger 
 
+from app.models.application import Application
 from app.models.user import User, UserRole
 from app.models.student import Student
 from app.models.department import Department
@@ -468,12 +469,35 @@ async def delete_user_by_id(session: AsyncSession, user_id: str) -> None:
     except ValueError:
         raise ValueError("Invalid User ID")
 
+    # 1. Fetch the User
     result = await session.execute(select(User).where(User.id == uuid_obj))
     user = result.scalar_one_or_none()
 
     if not user:
         raise ValueError("User not found")
 
+    # 2. Check if the user has a linked Student profile
+    student_result = await session.execute(select(Student).where(Student.user_id == user.id))
+    student = student_result.scalar_one_or_none()
+
+    if student:
+        # 3. Check if this student has ANY applications
+        app_result = await session.execute(select(Application).where(Application.student_id == student.id))
+        existing_app = app_result.scalars().first()
+
+        # 4. BLOCK DELETION if an application exists
+        if existing_app:
+            raise ValueError("Cannot delete this user because they have submitted an application. Please reject or archive the application first.")
+        
+        # ✅ THE FIX: Break the two-way link before deleting!
+        user.student_id = None
+        session.add(user)
+        await session.flush() # Forces the database to update the User right now
+        
+        # Now it is safe to delete the student profile
+        await session.delete(student)
+
+    # 5. Finally, delete the User
     await session.delete(user)
     await session.commit()
 

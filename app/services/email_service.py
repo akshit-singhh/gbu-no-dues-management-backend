@@ -3,247 +3,298 @@
 import smtplib
 import os
 import asyncio
-import logging
+import concurrent.futures
 from functools import partial
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from jinja2 import Environment, FileSystemLoader
 
 from app.core.config import settings
+from loguru import logger
 
-# ---------------------------------------------------------
-# SETUP LOGGING
-# ---------------------------------------------------------
-logger = logging.getLogger(__name__)
+# ---------------------------------------------------------------------------
+# Jinja2 environment — built once at import time, not per call
+# autoescape=True prevents XSS from user-supplied data in HTML emails
+# ---------------------------------------------------------------------------
+_TEMPLATE_DIR = os.path.join(
+    os.path.abspath(os.getcwd()), "app", "templates", "email"
+)
+_JINJA_ENV = Environment(
+    loader=FileSystemLoader(_TEMPLATE_DIR),
+    autoescape=True,
+)
+
+# ---------------------------------------------------------------------------
+# Bounded thread pool for blocking SMTP calls
+# Caps concurrent SMTP threads — prevents thread exhaustion under load
+# ---------------------------------------------------------------------------
+_SMTP_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=5,
+    thread_name_prefix="smtp",
+)
 
 
-# ---------------------------------------------------------
-# TEMPLATE HELPER
-# ---------------------------------------------------------
-def get_template(template_name: str):
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_template(template_name: str):
+    """Return a compiled Jinja2 template from the shared environment."""
+    return _JINJA_ENV.get_template(template_name)
+
+
+def _now_str(fmt: str = "%d-%m-%Y") -> str:
+    """Current UTC time as a formatted string — consistent across timezones."""
+    return datetime.now(timezone.utc).strftime(fmt)
+
+
+# ---------------------------------------------------------------------------
+# Core SMTP sender — blocking, runs in executor thread
+# Raises on failure so callers can handle/retry as needed
+# ---------------------------------------------------------------------------
+
+def _send_via_smtp(to_email: str, subject: str, html_content: str) -> None:
     """
-    Loads email templates from the 'app/templates/email' directory.
-    Using os.path.abspath ensures it works regardless of where the server is started.
+    Blocking SMTP send. Must be called via run_in_executor, never directly
+    from an async context.
     """
-    template_dir = os.path.join(os.path.abspath(os.getcwd()), 'app', 'templates', 'email')
-    env = Environment(loader=FileSystemLoader(template_dir))
-    return env.get_template(template_name)
-
-
-# ---------------------------------------------------------
-# SYNC SMTP SENDER (Blocking IO - Run in Executor)
-# ---------------------------------------------------------
-def send_email_via_smtp(to_email: str, subject: str, html_content: str):
     if not settings.SMTP_HOST:
-        logger.warning(f"⚠️ SMTP Host not configured. Email to {to_email} skipped.")
+        logger.warning(f"SMTP host not configured — email to {to_email} skipped.")
         return
 
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
-        msg["To"] = to_email
-        msg.attach(MIMEText(html_content, "html"))
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText(html_content, "html"))
 
-        # Connection Logic: Port 465 (SSL) vs 587 (STARTTLS)
+    try:
+        # Timeout=10 prevents threads from blocking indefinitely on a hung server
         if settings.SMTP_PORT == 465:
-            server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT)
+            server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10)
         else:
-            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
+            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10)
             if settings.SMTP_PORT == 587:
                 server.starttls()
 
         with server:
             if settings.SMTP_USER and settings.SMTP_PASSWORD:
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            
-            server.sendmail(
-                settings.EMAILS_FROM_EMAIL,
-                to_email,
-                msg.as_string()
-            )
+            server.sendmail(settings.EMAILS_FROM_EMAIL, to_email, msg.as_string())
 
-        logger.info(f"✅ Email sent successfully to {to_email}")
-
+        logger.info(f"✅ Email sent to {to_email} | subject='{subject}'")
+        
     except Exception as e:
-        logger.error(f"❌ Failed to send email to {to_email}: {str(e)}")
+        # Catch the connection error so it doesn't crash the background task!
+        logger.error(f"❌ Failed to send email to {to_email}. SMTP Error: {e}")
 
 
-# ---------------------------------------------------------
-# ASYNC WRAPPER (Non-Blocking for FastAPI)
-# ---------------------------------------------------------
-async def send_email_async(to_email: str, subject: str, html_content: str):
+# ---------------------------------------------------------------------------
+# Async wrapper — offloads blocking SMTP to bounded executor
+# ---------------------------------------------------------------------------
+
+async def send_email_async(to_email: str, subject: str, html_content: str) -> None:
     """
-    Offloads the blocking SMTP call to a separate thread so the API remains fast.
+    Non-blocking email send for use inside FastAPI route handlers and
+    background tasks.
+
+    Raises:
+        Exception — propagates SMTP failures to the caller so they can
+        decide whether to swallow, retry, or alert.
     """
-    try:
-        loop = asyncio.get_running_loop()
-        task = partial(send_email_via_smtp, to_email, subject, html_content)
-        await loop.run_in_executor(None, task)
-    except Exception as e:
-        logger.error(f"⚠️ Async Email Task Error: {str(e)}")
+    if not to_email:
+        logger.error("send_email_async called with empty to_email — skipping.")
+        return
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        _SMTP_EXECUTOR,
+        partial(_send_via_smtp, to_email, subject, html_content),
+    )
 
 
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
 # 1. WELCOME EMAIL
-# ---------------------------------------------------------
-async def send_welcome_email(student_data: dict):
-    template = get_template('student_welcome.html')
+# ---------------------------------------------------------------------------
 
-    context = {
-        "name": student_data.get("full_name"),
-        "enrollment_number": student_data.get("enrollment_number"),
-        "roll_number": student_data.get("roll_number"),
-        "email": student_data.get("email"),
-        "login_url": f"{settings.FRONTEND_URL}/login"
-    }
+async def send_welcome_email(student_data: dict) -> None:
+    """
+    Sent when a student account is created.
 
-    html_content = template.render(context)
+    Required keys: full_name, enrollment_number, roll_number, email
+    """
+    email = student_data.get("email")
+    if not email:
+        logger.error("send_welcome_email: missing 'email' in student_data.")
+        return
 
-    await send_email_async(
-        student_data.get("email"),
-        "Welcome to GBU No Dues Portal",
-        html_content
-    )
+    html_content = _get_template("student_welcome.html").render({
+        "name": student_data.get("full_name", "Student"),
+        "enrollment_number": student_data.get("enrollment_number", "N/A"),
+        "roll_number": student_data.get("roll_number", "N/A"),
+        "email": email,
+        "login_url": f"{settings.FRONTEND_URL}/login",
+    })
+
+    await send_email_async(email, "Welcome to GBU No Dues Portal", html_content)
 
 
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
 # 2. APPLICATION REJECTED EMAIL
-# ---------------------------------------------------------
-async def send_application_rejected_email(data: dict):
-    template = get_template('application_rejected.html')
+# ---------------------------------------------------------------------------
 
-    context = {
-        "name": data.get("name"),
-        "department_name": data.get("department_name"),
-        "remarks": data.get("remarks"),
-        "rejection_date": datetime.now().strftime("%d-%m-%Y"),
-        "login_url": f"{settings.FRONTEND_URL}/login"
-    }
+async def send_application_rejected_email(data: dict) -> None:
+    """
+    Sent when a department rejects / returns an application.
 
-    html_content = template.render(context)
+    Required keys: email, name, department_name, remarks
+    """
+    email = data.get("email")
+    if not email:
+        logger.error("send_application_rejected_email: missing 'email'.")
+        return
+
+    html_content = _get_template("application_rejected.html").render({
+        "name": data.get("name", "Student"),
+        "department_name": data.get("department_name", ""),
+        "remarks": data.get("remarks", ""),
+        "rejection_date": _now_str(),
+        "login_url": f"{settings.FRONTEND_URL}/login",
+    })
 
     await send_email_async(
-        data.get("email"),
+        email,
         "Action Required: No Dues Application Returned",
-        html_content
+        html_content,
     )
 
 
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
 # 3. APPLICATION APPROVED EMAIL
-# ---------------------------------------------------------
-async def send_application_approved_email(data: dict):
-    template = get_template('application_approved.html')
+# ---------------------------------------------------------------------------
 
-    context = {
-        "name": data.get("name"),
-        "roll_number": data.get("roll_number"),
-        "enrollment_number": data.get("enrollment_number"),
-        "display_id": data.get("display_id"),
-        "application_id": str(data.get("application_id")),
-        "completion_date": datetime.now().strftime("%d-%m-%Y"),
-        "certificate_url": (
-            f"{settings.FRONTEND_URL}/certificate/download/"
-            f"{data.get('application_id')}"
-        )
-    }
+async def send_application_approved_email(data: dict) -> None:
+    """
+    Sent when all departments have cleared an application.
 
-    html_content = template.render(context)
+    Required keys: email, name, roll_number, enrollment_number,
+                   display_id, application_id
+    """
+    email = data.get("email")
+    if not email:
+        logger.error("send_application_approved_email: missing 'email'.")
+        return
+
+    app_id = str(data.get("application_id", ""))
+
+    html_content = _get_template("application_approved.html").render({
+        "name": data.get("name", "Student"),
+        "roll_number": data.get("roll_number", ""),
+        "enrollment_number": data.get("enrollment_number", ""),
+        "display_id": data.get("display_id", app_id),
+        "application_id": app_id,
+        "completion_date": _now_str(),
+        "certificate_url": f"{settings.FRONTEND_URL}/certificate/download/{app_id}",
+    })
 
     await send_email_async(
-        data.get("email"),
-        "🎉 No Dues Application Approved",
-        html_content
+        email,
+        "No Dues Application Approved",
+        html_content,
     )
 
 
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
 # 4. APPLICATION SUBMITTED EMAIL
-# ---------------------------------------------------------
-async def send_application_created_email(data: dict):
-    """
-    data requires:
-    - name
-    - email
-    - application_id
-    - display_id
-    """
-    template = get_template('application_created.html')
+# ---------------------------------------------------------------------------
 
-    context = {
-        "name": data.get("name"),
-        "display_id": data.get("display_id") or str(data.get("application_id")),
-        "application_id": str(data.get("application_id")),
-        "submission_date": datetime.now().strftime("%d-%m-%Y %I:%M %p"),
-        "track_url": f"{settings.FRONTEND_URL}/dashboard"
-    }
+async def send_application_created_email(data: dict) -> None:
+    """
+    Sent immediately after a student submits a no-dues application.
 
-    html_content = template.render(context)
+    Required keys: email, name, application_id
+    Optional keys: display_id
+    """
+    email = data.get("email")
+    if not email:
+        logger.error("send_application_created_email: missing 'email'.")
+        return
+
+    app_id = str(data.get("application_id", ""))
+
+    html_content = _get_template("application_created.html").render({
+        "name": data.get("name", "Student"),
+        "display_id": data.get("display_id") or app_id,
+        "application_id": app_id,
+        "submission_date": _now_str("%d-%m-%Y %I:%M %p"),
+        "track_url": f"{settings.FRONTEND_URL}/dashboard",
+    })
 
     await send_email_async(
-        data.get("email"),
+        email,
         "Application Submitted Successfully - GBU No Dues",
-        html_content
+        html_content,
     )
 
 
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
 # 5. PASSWORD RESET OTP EMAIL
-# ---------------------------------------------------------
-async def send_reset_password_email(data: dict):
-    """
-    data = {
-        "email": "...",
-        "name": "...",
-        "otp": "123456"
-    }
-    """
-    template = get_template('password_reset.html')
+# ---------------------------------------------------------------------------
 
-    context = {
+async def send_reset_password_email(data: dict) -> None:
+    """
+    Sends a 6-digit OTP for password reset.
+
+    Required keys: email, otp
+    Optional keys: name
+    """
+    email = data.get("email")
+    if not email:
+        logger.error("send_reset_password_email: missing 'email'.")
+        return
+
+    html_content = _get_template("password_reset.html").render({
         "name": data.get("name", "User"),
-        "otp": data.get("otp"),
+        "otp": data.get("otp", ""),
         "expiry_minutes": 15,
-        "support_email": settings.EMAILS_FROM_EMAIL
-    }
-
-    html_content = template.render(context)
+        "support_email": settings.EMAILS_FROM_EMAIL,
+    })
 
     await send_email_async(
-        data.get("email"),
+        email,
         "Password Reset OTP - GBU No Dues",
-        html_content
+        html_content,
     )
 
 
-# ---------------------------------------------------------
-# 6. PENDING REMINDER EMAIL (For Verifiers)
-# ---------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 6. PENDING REMINDER EMAIL (for verifiers / department heads)
+# ---------------------------------------------------------------------------
+
 async def send_pending_reminder_email(
     verifier_name: str,
     verifier_email: str,
     pending_count: int,
-    department_name: str
-):
+    department_name: str,
+) -> None:
     """
-    Sends a reminder to a Department/Verifier about overdue applications.
-    Uses 'pending_reminder.html' template.
+    Reminds a verifier about applications pending for more than 7 days.
+    Called by the stale-notifications cron job (jobs.py).
     """
-    template = get_template('pending_reminder.html')
+    if not verifier_email:
+        logger.error("send_pending_reminder_email: empty verifier_email — skipping.")
+        return
 
-    context = {
-        "verifier_name": verifier_name,
+    html_content = _get_template("pending_reminder.html").render({
+        "verifier_name": verifier_name or "Verifier",
         "pending_count": pending_count,
         "department_name": department_name,
-        "dashboard_url": f"{settings.FRONTEND_URL}/login"
-    }
-
-    html_content = template.render(context)
+        "dashboard_url": f"{settings.FRONTEND_URL}/login",
+    })
 
     await send_email_async(
         verifier_email,
-        f"⚠️ Action Required: {pending_count} Pending Applications",
-        html_content
+        f"Action Required: {pending_count} Pending Applications",
+        html_content,
     )

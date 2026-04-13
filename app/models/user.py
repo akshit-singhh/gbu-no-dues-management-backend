@@ -81,7 +81,8 @@ class User(SQLModel, table=True):
     student: Optional["Student"] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={
-            "foreign_keys": "Student.user_id"
+            "foreign_keys": "Student.user_id",
+            "cascade": "all, delete-orphan"
         }
     )
     
