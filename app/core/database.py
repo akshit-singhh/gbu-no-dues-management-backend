@@ -134,12 +134,18 @@ def make_ssl_context():
     Creates SSL context for supported remote databases.
     """
     ca_path = os.getenv("DB_SSL_CA") or os.getenv("DB_CA_CERT_PATH")
+    strict_ca = _is_truthy(os.getenv("DB_SSL_CA_REQUIRED", "false"))
     verify_ssl = _is_truthy(os.getenv("DB_SSL_VERIFY", "true"))
 
     if ca_path:
         if not os.path.exists(ca_path):
-            raise RuntimeError("❌ SSL CA file not found. Check DB_SSL_CA path.")
-        ctx = ssl.create_default_context(cafile=ca_path)
+            message = f"SSL CA file not found at '{ca_path}'."
+            if strict_ca:
+                raise RuntimeError(f"❌ {message} Set a valid DB_SSL_CA/DB_CA_CERT_PATH or disable DB_SSL_CA_REQUIRED.")
+            logger.warning(f"⚠️ {message} Falling back to system CA trust store.")
+            ctx = ssl.create_default_context()
+        else:
+            ctx = ssl.create_default_context(cafile=ca_path)
     else:
         ctx = ssl.create_default_context()
 
