@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Welcome to GBU No Dues</title>
+<style>
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f0f6ff;
+        margin: 0;
+        padding: 0;
+    }
+    .container {
+        max-width: 600px;
+        margin: 20px auto;
+        background: #ffffff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .header {
+        background: linear-gradient(135deg, #0056b3, #0090ff);
+        color: #ffffff;
+        text-align: center;
+        padding: 30px 20px;
+    }
+    .logo-circle {
+        width: 90px;
+        height: 90px;
+        background-color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 15px auto;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    .logo-circle img {
+        max-width: 70%;
+        max-height: 70%;
+        border-radius: 50%;
+    }
+    .header h1 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 600;
+    }
+    .content {
+        padding: 30px;
+        color: #333333;
+        line-height: 1.6;
+    }
+    .info-box {
+        background-color: #e7f1ff;
+        border-left: 4px solid #0056b3;
+        padding: 15px;
+        margin: 20px 0;
+        border-radius: 4px;
+    }
+    .details-table td {
+        padding: 6px 0;
+    }
+    .label {
+        font-weight: bold;
+        width: 140px;
+    }
+    .btn {
+        display: inline-block;
+        padding: 12px 24px;
+        background-color: #0056b3;
+        color: #ffffff !important;
+        text-decoration: none;
+        border-radius: 4px;
+        font-weight: bold;
+    }
+    .btn:hover {
+        background-color: #003f82;
+    }
+    .footer {
+        background-color: #eef3fa;
+        padding: 15px;
+        text-align: center;
+        font-size: 12px;
+        color: #666;
+    }
+
+    /* Mobile responsiveness */
+    @media screen and (max-width: 640px) {
+        .container {
+            margin: 10px;
+        }
+        .content {
+            padding: 20px;
+        }
+        .header h1 {
+            font-size: 20px;
+        }
+        .btn {
+            padding: 10px 20px;
+        }
+    }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- Header with circular logo -->
+    <div class="header">
+        <div class="logo-circle">
+            <img src="https://www.gbu.ac.in/Content/img/logo_gbu.png" alt="GBU Logo">
+        </div>
+        <h1>Welcome to GBU No Dues Portal</h1>
+    </div>
+
+    <!-- Email content -->
+    <div class="content">
+        <p>Dear <strong>{{ name }}</strong>,</p>
+
+        <p>Your account for the <strong>Gautam Buddha University No Dues Portal</strong> has been successfully created.</p>
+
+        <div class="info-box">
+            <table class="details-table">
+                <tr>
+                    <td class="label">Enrollment No:</td>
+                    <td>{{ enrollment_number }}</td>
+                </tr>
+                <tr>
+                    <td class="label">Roll Number:</td>
+                    <td>{{ roll_number }}</td>
+                </tr>
+                <tr>
+                    <td class="label">Email:</td>
+                    <td>{{ email }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <p>You can now log in to the portal to initiate your No Dues application, track its status, and download your certificate upon completion.</p>
+
+        <div style="text-align:center; margin:30px 0;">
+            <a href="{{ login_url }}" class="btn">Login to Portal</a>
+        </div>
+
+        <p>If you didn’t request this registration, please contact the university IT cell.</p>
+
+        <p>Regards,<br>GBU Administration</p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        &copy; 2025 Gautam Buddha University. All rights reserved.<br>
+        This is an automated message. Please do not reply.
+    </div>
+
+</div>
+
+</body>
+</html>

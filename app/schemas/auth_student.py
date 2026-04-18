@@ -5,6 +5,7 @@ from app.schemas.student import StudentRead
 class StudentLoginRequest(BaseModel):
     identifier: str     # <-- enrollment_number OR roll_number
     password: str
+    captcha_input: str
 
 class StudentLoginResponse(BaseModel):
     access_token: str

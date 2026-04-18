@@ -1,0 +1,67 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Virtual Environments ---
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# --- Environment Secrets ---
+.env
+.env.local
+.env.*
+.python-version
+
+# --- Docker ---
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# --- Git ---
+.git/
+.gitignore
+.gitattributes
+
+# --- Database & Migrations ---
+# Only ignore sqlite files if you use them for local testing
+*.sqlite3
+*.db
+.alembic/
+
+# --- IDEs & OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Logs & PDF Temp Files ---
+*.log
+pdf_output/
+temp_pdf/
+*.pdf

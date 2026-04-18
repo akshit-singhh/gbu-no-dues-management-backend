@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>No Dues Certificate</title>
+
+<!-- ✅ 1. INJECT PYTHON STYLES (Crucial for Margins) -->
+{{ page_style|safe }}
+
+<style>
+/* =================== BASE SETTINGS =================== */
+body {
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 10px; /* Slightly smaller for better fit */
+    color: #1e293b;
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+}
+
+/* =================== HEADER =================== */
+.header {
+    text-align: center;
+    margin-bottom: 15px; /* Compact margin */
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 8px;
+}
+.header img {
+    height: 55px; /* Slightly smaller logo */
+    margin-bottom: 4px;
+}
+.university-name {
+    font-size: 18px;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #0f172a;
+    padding-top: 2px;
+}
+.university-sub {
+    font-size: 9px;
+    color: #64748b;
+    margin-bottom: 6px;
+}
+.doc-title {
+    display: inline-block;
+    padding: 5px 18px;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    background-color: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+}
+
+/* =================== SECTIONS =================== */
+.section-title {
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #334155;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 3px;
+    margin-top: 15px;
+    margin-bottom: 8px;
+}
+
+/* =================== TABLES =================== */
+.profile-table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+.profile-table td { 
+    width: 50%; 
+    padding: 3px 0; /* Tighter padding */
+    vertical-align: top; 
+}
+
+.label {
+    font-size: 7px;
+    text-transform: uppercase;
+    color: #64748b;
+    font-weight: bold;
+    display: block;
+    margin-bottom: 1px;
+}
+.value {
+    font-size: 10px;
+    font-weight: bold;
+    color: #0f172a;
+    display: block;
+    border-bottom: 1px solid #f8fafc;
+    padding-bottom: 2px;
+    margin-right: 10px;
+}
+
+/* Clearance Table */
+.clearance-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9px;
+    border: 1px solid #e2e8f0;
+}
+.clearance-table th {
+    background-color: #f1f5f9;
+    color: #475569;
+    font-weight: bold;
+    text-transform: uppercase;
+    padding: 5px 8px;
+    border-bottom: 1px solid #cbd5e1;
+    text-align: left;
+    font-size: 8px;
+}
+.clearance-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #334155;
+}
+/* Alternating rows for readability */
+.clearance-table tr.even { background-color: #f8fafc; }
+
+/* Status Badges */
+.status-approved { color: #166534; font-weight: bold; }
+.status-pending { color: #854d0e; font-weight: bold; }
+
+/* =================== SUMMARY =================== */
+.summary-container {
+    margin-top: 20px;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 12px;
+}
+.summary-layout { width: 100%; }
+.summary-left { vertical-align: top; width: 75%; }
+.summary-right { vertical-align: top; width: 25%; text-align: right; }
+
+.cert-id {
+    font-family: Courier, monospace;
+    font-size: 12px;
+    font-weight: bold;
+    color: #0f172a;
+}
+
+/* =================== FOOTER =================== */
+.footer {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 7px;
+    color: #94a3b8;
+    border-top: 1px dashed #e2e8f0;
+    padding-top: 8px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- HEADER -->
+<div class="header">
+    <img src="data:image/png;base64,{{ logo_base64 }}" alt="Logo" />
+    <div class="university-name">Gautam Buddha University</div>
+    <div class="university-sub">Greater Noida, Uttar Pradesh, India</div>
+    <div class="doc-title">No Dues Certificate</div>
+</div>
+
+<!-- STUDENT PROFILE (Detailed) -->
+<div class="section-title">Student Academic Profile</div>
+<table class="profile-table">
+    <tr>
+        <td>
+            <span class="label">Student Name</span>
+            <span class="value">{{ student.full_name }}</span>
+        </td>
+        <td>
+            <span class="label">Roll Number</span>
+            <span class="value">{{ student.roll_number }}</span>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <span class="label">Enrollment Number</span>
+            <span class="value">{{ student.enrollment_number }}</span>
+        </td>
+        <td>
+            <span class="label">Admission Year / Admission Type</span>
+            <span class="value">{{ student.admission_year }} ({{ student.admission_type or 'Regular' }})</span>
+        </td>
+    </tr>
+    
+    <!-- NEW: School & Dept -->
+    <tr>
+        <td colspan="2">
+            <span class="label">School</span>
+            <span class="value">{{ student.school.name if student.school else 'N/A' }}</span>
+        </td>
+    </tr>
+    <tr>
+        <td>
+            <span class="label">Department</span>
+            <span class="value">{{ student.department.name if student.department else 'N/A' }}</span>
+        </td>
+        <td>
+            <span class="label">Section</span>
+            <span class="value">{{ student.section or 'N/A' }}</span>
+        </td>
+    </tr>
+
+    <!-- ✅ NEW: Programme & Specialization -->
+    <tr>
+        <td>
+            <span class="label">Programme</span>
+            <span class="value">{{ student.programme.name if student.programme else 'N/A' }}</span>
+        </td>
+        <td>
+            <span class="label">Specialization</span>
+            <span class="value">{{ student.specialization.name if student.specialization else 'General' }}</span>
+        </td>
+    </tr>
+    
+    <tr>
+        <td colspan="2">
+            <span class="label">Contact Details</span>
+            <span class="value">{{ student.mobile_number }} &nbsp;|&nbsp; {{ student.email }}</span>
+        </td>
+    </tr>
+</table>
+
+<!-- CLEARANCE TABLE -->
+<div class="section-title">Clearance Status</div>
+<table class="clearance-table">
+    <thead>
+        <tr>
+            <th width="5%">#</th>
+            <th width="40%">Department / Authority</th>
+            <th width="20%">Status</th>
+            <th width="20%">Verified By</th>
+            <th width="15%">Date</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for stage in stages %}
+        <tr class="{{ loop.cycle('', 'even') }}">
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ stage.department_name }}</strong></td>
+            <td>
+                {% if stage.status == 'Approved' %}
+                    <span class="status-approved">CLEARED</span>
+                {% else %}
+                    <span class="status-pending">{{ stage.status | upper }}</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if stage.status == 'Approved' %}
+                    {{ stage.reviewer_name }}<br>
+                    <span style="font-size:7px; color:#94a3b8;">(Digital Sign)</span>
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td>{{ stage.reviewed_at }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<!-- SUMMARY BOX -->
+<div class="summary-container">
+    <table class="summary-layout">
+        <tr>
+            <td class="summary-left">
+                <span class="label">Certificate ID</span>
+                <div class="cert-id">{{ certificate_id }}</div>
+                <br>
+                <span class="label">Issued On</span>
+                <div class="value" style="border:none;">{{ generation_date }}</div>
+                
+                <div style="margin-top:8px; color:#166534; font-weight:bold; font-size:10px;">
+                    ✔ Verified & Approved via GBU No-Dues Portal
+                </div>
+            </td>
+            <td class="summary-right">
+                <div style="border:1px solid #e2e8f0; padding:4px; background:#fff; display:inline-block;">
+                    <img src="data:image/png;base64,{{ qr_base64 }}" width="70" height="70" alt="QR">
+                </div>
+                <div style="font-size:7px; color:#475569; margin-top:2px;">Scan to Verify</div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+    This document is electronically generated by the Gautam Buddha University No-Dues System.<br>
+    It is valid without a physical signature. Verify authenticity using the QR code above.
+</div>
+
+</body>
+</html>

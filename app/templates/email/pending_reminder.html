@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pending Applications Reminder</title>
+    <style>
+        /* Base Reset */
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f1f5f9; -webkit-font-smoothing: antialiased; }
+        table { border-spacing: 0; width: 100%; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        
+        /* Header */
+        .header { background-color: #1e3a8a; padding: 24px; text-align: center; }
+        .header h1 { color: #ffffff; margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 1px; }
+        .header p { color: #93c5fd; margin: 5px 0 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; }
+
+        /* Content */
+        .content { padding: 32px 24px; color: #334155; line-height: 1.6; }
+        .greeting { font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 16px; }
+        
+        /* Alert Box */
+        .alert-box { background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; margin: 20px 0; border-radius: 4px; }
+        .alert-title { color: #b91c1c; font-weight: 700; font-size: 14px; margin-bottom: 4px; display: block; }
+        .alert-text { color: #7f1d1d; font-size: 13px; margin: 0; }
+
+        /* Stats */
+        .stat-container { text-align: center; margin: 24px 0; padding: 20px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
+        .stat-number { font-size: 32px; font-weight: 800; color: #ef4444; display: block; line-height: 1; }
+        .stat-label { font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; margin-top: 8px; display: block; }
+
+        /* Button */
+        .btn-container { text-align: center; margin-top: 32px; }
+        .btn { display: inline-block; padding: 12px 32px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2); }
+        .btn:hover { background-color: #1d4ed8; }
+
+        /* Footer */
+        .footer { background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0; }
+        .footer p { color: #94a3b8; font-size: 11px; margin: 4px 0; }
+        .link { color: #2563eb; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div style="padding: 20px 0;">
+        <table>
+            <tr>
+                <td class="header">
+                    <h1>Gautam Buddha University</h1>
+                    <p>No Dues Portal</p>
+                </td>
+            </tr>
+
+            <tr>
+                <td class="content">
+                    <div class="greeting">Dear {{ verifier_name }},</div>
+                    
+                    <p>This is an automated system reminder regarding pending student applications in your queue.</p>
+
+                    <div class="alert-box">
+                        <span class="alert-title">⚠️ ACTION REQUIRED</span>
+                        <p class="alert-text">Several applications have been pending clearance for more than <strong>7 days</strong>. Please review them at your earliest convenience to avoid delays for students.</p>
+                    </div>
+
+                    <div class="stat-container">
+                        <span class="stat-number">{{ pending_count }}</span>
+                        <span class="stat-label">Pending Applications</span>
+                        <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Department: <strong>{{ department_name }}</strong></div>
+                    </div>
+
+                    <p style="font-size: 13px; color: #64748b; text-align: center;">
+                        Students cannot receive their No-Dues certificate until these steps are completed.
+                    </p>
+
+                    <div class="btn-container">
+                        <a href="{{ dashboard_url }}" class="btn">Login to Dashboard</a>
+                    </div>
+                </td>
+            </tr>
+
+            <tr>
+                <td class="footer">
+                    <p>This is a system-generated email. Please do not reply.</p>
+                    <p>&copy; 2026 Gautam Buddha University. All rights reserved.</p>
+                </td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

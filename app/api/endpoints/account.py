@@ -1,10 +1,11 @@
 # app/api/endpoints/account.py
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel.ext.asyncio.session import AsyncSession
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user, get_db_session
-from app.core.security import verify_password, hash_password
+from app.core.security import verify_password, get_password_hash
 from app.models.user import User
 
 router = APIRouter(prefix="/api/account", tags=["Account"])
@@ -30,7 +31,8 @@ async def change_password(
         raise HTTPException(status_code=400, detail="New password must be different")
 
     # Update password
-    current_user.password_hash = hash_password(payload.new_password)
+    current_user.password_hash = get_password_hash(payload.new_password)
+    
     session.add(current_user)
     await session.commit()
 

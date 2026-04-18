@@ -1,58 +1,72 @@
 # app/core/security.py
+import hashlib
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional, Union
+
+import jwt 
 from passlib.context import CryptContext
-from datetime import datetime, timedelta
-from jose import jwt, JWTError
-from typing import Optional
 from app.core.config import settings
 
+# 1. Configuration
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
-MAX_BCRYPT_BYTES = 72  # bcrypt max bytes
 
-def _truncate_password(password: str) -> str:
+# 2. Advanced Password Handling
+def _pre_hash_password(password: str) -> str:
     """
-    Truncate password to 72 bytes safely for bcrypt.
-    Returns a UTF-8 string that is safe for hashing.
+    Handle the 'bcrypt 72-byte limit' safely.
     """
-    encoded = password.encode("utf-8")[:MAX_BCRYPT_BYTES]
-    return encoded.decode("utf-8", "ignore")
+    if len(password.encode('utf-8')) <= 72:
+        return password
+    
+    hashed = hashlib.sha256(password.encode('utf-8')).hexdigest()
+    return hashed
 
-def hash_password(password: str) -> str:
-    """
-    Hash password using bcrypt, safely truncated.
-    """
-    safe_password = _truncate_password(password)
+# This matches what admin.py is trying to import
+def get_password_hash(password: str) -> str:
+    safe_password = _pre_hash_password(password)
     return pwd_context.hash(safe_password)
 
-def verify_password(plain: str, hashed: str) -> bool:
-    """
-    Verify password using bcrypt, safely truncated.
-    """
-    safe_plain = _truncate_password(plain)
-    return pwd_context.verify(safe_plain, hashed)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    safe_password = _pre_hash_password(plain_password)
+    return pwd_context.verify(safe_password, hashed_password)
 
+# 3. Robust Token Creation
 def create_access_token(
-    subject: str,
-    data: Optional[dict] = None,
-    expires_delta: Optional[timedelta] = None
+    subject: Union[str, Any], 
+    expires_delta: Optional[timedelta] = None,
+    data: Optional[dict] = None
 ) -> str:
-    """
-    Create a JWT access token.
-    """
-    to_encode = {"sub": subject}
+    
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode = {
+        "sub": str(subject),  
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "nbf": datetime.now(timezone.utc)
+    }
+    
     if data:
         to_encode.update(data)
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    token = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
-    return token
 
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# 4. Safer Decoding
 def decode_token(token: str) -> dict:
-    """
-    Decode a JWT token.
-    """
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token, 
+            settings.SECRET_KEY, 
+            algorithms=[ALGORITHM],
+            options={"verify_exp": True}
+        )
         return payload
-    except JWTError as e:
-        raise e
+    except jwt.ExpiredSignatureError:
+        raise
+    except jwt.InvalidTokenError:
+        raise

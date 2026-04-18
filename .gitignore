@@ -46,3 +46,20 @@ Thumbs.db
 # Generated folders
  htmlcov/
  coverage.xml
+
+# Docker
+*.log
+*.pid
+
+# SSL certificates
+certs/
+
+#testing server
+run_server.py
+pagekite.py
+run_mailpit.py
+run_fastapi_tunnel.py
+
+app/static/certificates/
+.pytest_failures.txt
+.env.example

@@ -1,78 +1,98 @@
 # app/api/endpoints/students.py
+from sqlmodel import select
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db_session
 from app.core.rbac import AllowRoles
+from app.models.student import Student
 from app.models.user import User, UserRole
-from app.schemas.student import StudentRegister, StudentRead
-from app.schemas.auth_student import StudentLoginRequest, StudentLoginResponse
-from app.services.student_service import (
-    register_student_and_user,
-    get_student_by_id,
-    list_students,
-)
-from app.services.auth_service import authenticate_student
+from app.schemas.student import StudentRead, StudentUpdate
 
+from app.services.student_service import (
+    get_student_by_id,
+    update_student_profile
+)
 
 router = APIRouter(
     prefix="/api/students",
-    tags=["Students"]
+    tags=["Students (Profile)"]
 )
 
-
 # ------------------------------------------------------------
-# STUDENT LOGIN  (kept inside students router)
-# ------------------------------------------------------------
-@router.post("/login", response_model=StudentLoginResponse)
-async def student_login(
-    data: StudentLoginRequest,
-    session: AsyncSession = Depends(get_db_session)
-):
-    auth = await authenticate_student(session, data.identifier, data.password)
-
-
-    if not auth:
-        raise HTTPException(status_code=401, detail="Invalid Enrollment/Roll Number or password")
-
-    return auth
-
-
-# ------------------------------------------------------------
-# STUDENT SELF-REGISTRATION (PUBLIC)
-# ------------------------------------------------------------
-@router.post("/register", response_model=StudentRead, status_code=status.HTTP_201_CREATED)
-async def register_student(
-    data: StudentRegister,
-    session: AsyncSession = Depends(get_db_session),
-):
-
-    if data.password != data.confirm_password:
-        raise HTTPException(status_code=400, detail="Passwords do not match")
-
-    try:
-        student = await register_student_and_user(session, data)
-        return StudentRead.from_orm(student)
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# ------------------------------------------------------------
-# GET "MY PROFILE" (student or super admin)
+# GET "MY PROFILE"
 # ------------------------------------------------------------
 @router.get("/me", response_model=StudentRead)
 async def get_my_student_profile(
     current_user: User = Depends(AllowRoles(UserRole.Student, UserRole.Admin)),
     session: AsyncSession = Depends(get_db_session),
 ):
+    """
+    Fetch the currently logged-in student's profile details.
+    """
+    if not current_user.student_id:
+        raise HTTPException(status_code=404, detail="Student profile not linked to this account")
+    stmt = (
+        select(Student)
+        .options(
+            selectinload(Student.school),
+            selectinload(Student.department),
+            selectinload(Student.programme),
+            selectinload(Student.specialization)
+        )
+        .where(Student.id == current_user.student_id)
+    )
+    
+    result = await session.execute(stmt)
+    student = result.scalar_one_or_none()
 
+    if not student:
+        raise HTTPException(status_code=404, detail="Student record not found in database")
+
+    # Now Pydantic can read data.programme without triggering a lazy DB call
+    return StudentRead.model_validate(student)
+
+
+# ------------------------------------------------------------
+# UPDATE PROFILE (General Update)
+# ------------------------------------------------------------
+@router.patch("/update", response_model=StudentRead)
+async def update_my_profile(
+    update_data: StudentUpdate,
+    current_user: User = Depends(AllowRoles(UserRole.Student)),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Allows the student to update their profile details (Address, Mobile, etc.)
+    independently of the application process.
+    """
     if not current_user.student_id:
         raise HTTPException(status_code=404, detail="Student profile not linked")
 
-    student = await get_student_by_id(session, current_user.student_id)
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
+    try:
+        # 1. Update the student (this modifies the DB but might not eager-load relationships)
+        await update_student_profile(
+            session, 
+            current_user.student_id, 
+            update_data
+        )
+        
+        stmt = (
+            select(Student)
+            .options(
+                selectinload(Student.school),
+                selectinload(Student.department),
+                selectinload(Student.programme),
+                selectinload(Student.specialization)
+            )
+            .where(Student.id == current_user.student_id)
+        )
+        result = await session.execute(stmt)
+        full_updated_student = result.scalar_one()
 
-    return StudentRead.from_orm(student)
+        return StudentRead.model_validate(full_updated_student)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

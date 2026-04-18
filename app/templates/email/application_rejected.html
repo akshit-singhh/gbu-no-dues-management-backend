@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Returned for Correction</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f6ff;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #dc3545, #e4606d); /* Red gradient for Rejection/Alert */
+            color: #ffffff;
+            text-align: center;
+            padding: 30px 20px;
+        }
+        .logo-circle {
+            width: 90px;
+            height: 90px;
+            background-color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px auto;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        .logo-circle img {
+            max-width: 70%;
+            max-height: 70%;
+            border-radius: 50%;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 600;
+        }
+        .content {
+            padding: 30px;
+            color: #333333;
+            line-height: 1.6;
+        }
+        .info-box {
+            background-color: #fff5f5; /* Light Red bg */
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .details-table td {
+            padding: 6px 0;
+            vertical-align: top;
+        }
+        .label {
+            font-weight: bold;
+            width: 140px;
+            color: #555;
+        }
+        .highlight {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #dc3545; /* Red Button */
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .btn:hover {
+            background-color: #b02a37;
+        }
+        .footer {
+            background-color: #eef3fa;
+            padding: 15px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+
+        /* Mobile responsiveness */
+        @media screen and (max-width: 640px) {
+            .container {
+                margin: 10px;
+            }
+            .content {
+                padding: 20px;
+            }
+            .header h1 {
+                font-size: 20px;
+            }
+            .btn {
+                padding: 10px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+
+        <!-- Header with circular logo -->
+        <div class="header">
+            <div class="logo-circle">
+                <img src="https://www.gbu.ac.in/Content/img/logo_gbu.png" alt="GBU Logo">
+            </div>
+            <h1>Action Required: Application Returned</h1>
+        </div>
+
+        <!-- Email content -->
+        <div class="content">
+            <p>Dear <strong>{{ name }}</strong>,</p>
+
+            <p>Your No Dues application has been reviewed and <strong>returned for correction</strong> by the following department.</p>
+
+            <div class="info-box">
+                <table class="details-table">
+                    <tr>
+                        <td class="label">Department:</td>
+                        <td style="font-size: 1.1em; font-weight: 600;">{{ department_name }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Date:</td>
+                        <td>{{ rejection_date }}</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Reason/Remarks:</td>
+                        <td class="highlight">{{ remarks }}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <p>Please address the remarks mentioned above (e.g., return books, clear fines, or correct details) and then <strong>Resubmit</strong> your application via the portal.</p>
+
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{ login_url }}" class="btn">View & Resubmit Application</a>
+            </div>
+
+            <p>If you believe this is an error, please visit the respective department in person.</p>
+
+            <p>Regards,<br>GBU Administration</p>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            &copy; 2025 Gautam Buddha University. All rights reserved.<br>
+            This is an automated message. Please do not reply.
+        </div>
+
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GBU No Dues Backend | System Health</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --bg-color: #f8fafc;
+            --surface: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- Navbar & Toggle --- */
+        .navbar {
+            background: var(--surface);
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1rem 0;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        .brand-logo {
+            font-weight: 700;
+            font-size: 1.25rem;
+            color: var(--text-main);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Segmented Control */
+        .view-toggle {
+            background: #f1f5f9;
+            padding: 4px;
+            border-radius: 8px;
+            display: inline-flex;
+            position: relative;
+        }
+
+        .toggle-btn {
+            border: none;
+            background: transparent;
+            padding: 6px 16px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-btn.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* --- Common Card Styles --- */
+        .glass-card {
+            background: var(--surface);
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s;
+        }
+
+        .metric-value { font-weight: 700; color: var(--text-main); }
+        .metric-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; }
+        
+        .icon-box {
+            width: 44px; height: 44px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; margin-right: 12px;
+        }
+
+        /* --- View 1: Simple Status Specifics --- */
+        #view-simple {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .status-hero-card {
+            max-width: 450px;
+            width: 100%;
+            padding: 2.5rem;
+            border-top: 4px solid var(--primary);
+        }
+
+        .status-banner {
+            background: #ecfdf5; border: 1px solid #d1fae5; color: #065f46;
+            padding: 1rem; border-radius: 12px; margin-bottom: 2rem;
+            font-weight: 600; display: flex; align-items: center; justify-content: center;
+            gap: 10px;
+        }
+
+        .pulse-dot {
+            width: 8px; height: 8px; background-color: var(--success);
+            border-radius: 50%; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse-green 2s infinite;
+        }
+
+        @keyframes pulse-green {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        /* --- View 2: Dashboard Specifics --- */
+        #view-dashboard { padding: 40px 0; }
+        
+        .progress { height: 6px; margin-top: 10px; background-color: #f1f5f9; }
+
+        /* Helpers */
+        .bg-primary-soft { background: #e0e7ff; color: var(--primary); }
+        .bg-success-soft { background: #dcfce7; color: var(--success); }
+        .bg-warning-soft { background: #fef3c7; color: var(--warning); }
+        .d-none { display: none !important; }
+    </style>
+</head>
+
+<body>
+
+    <nav class="navbar sticky-top">
+        <div class="container d-flex justify-content-between align-items-center">
+            <a href="#" class="brand-logo">
+                <i class="fa-solid fa-layer-group" style="color: var(--primary);"></i>
+                GBU No Dues
+            </a>
+
+            <div class="view-toggle">
+                <button class="toggle-btn active" onclick="switchView('simple')">Status</button>
+                <button class="toggle-btn" onclick="switchView('dashboard')">Dashboard</button>
+            </div>
+
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="loadMetrics()">
+                <i class="fa-solid fa-rotate-right me-1"></i> <span id="last-updated">Refresh</span>
+            </button>
+        </div>
+    </nav>
+
+    <div id="view-simple">
+        <div class="glass-card status-hero-card">
+            <div class="text-center mb-4">
+                <h4 class="fw-bold mb-1">System Status</h4>
+                <p class="text-muted small">Real-time backend health check</p>
+            </div>
+
+            <div class="status-banner" id="hero-banner">
+                <div class="pulse-dot"></div>
+                <span id="hero-text">All Systems Operational</span>
+            </div>
+
+            <ul class="list-unstyled">
+                <li class="d-flex align-items-center py-3">
+                    <div class="icon-box bg-success-soft"><i class="fa-solid fa-database"></i></div>
+                    <div class="flex-grow-1">
+                        <span class="d-block text-muted small fw-bold">DATABASE</span>
+                        <span class="fw-medium" id="simple-db">Checking...</span>
+                    </div>
+                </li>
+                <li class="d-flex align-items-center py-3 border-bottom">
+                    <div class="icon-box bg-primary-soft"><i class="fa-solid fa-envelope"></i></div>
+                    <div class="flex-grow-1">
+                        <span class="d-block text-muted small fw-bold">SMTP SERVER</span>
+                        <span class="fw-medium" id="simple-smtp">Checking...</span>
+                    </div>
+                </li>
+            </ul>
+            
+            <div class="text-center mt-4 text-muted small">
+                <i class="fa-solid fa-bolt text-warning"></i> Powered by FastAPI
+            </div>
+        </div>
+    </div>
+
+    <div id="view-dashboard" class="container d-none">
+        
+        <div class="row g-4 mb-4">
+            <div class="col-md-6 col-lg-3">
+                <div class="glass-card p-4 h-100">
+                    <div class="d-flex align-items-center">
+                        <div class="icon-box bg-primary-soft"><i class="fa-solid fa-microchip"></i></div>
+                        <div>
+                            <div class="metric-label">CPU Load</div>
+                            <div class="metric-value fs-4" id="dash-cpu">0%</div>
+                        </div>
+                    </div>
+                    <div class="progress"><div id="bar-cpu" class="progress-bar bg-primary" style="width: 0%"></div></div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-lg-3">
+                <div class="glass-card p-4 h-100">
+                    <div class="d-flex align-items-center">
+                        <div class="icon-box bg-warning-soft"><i class="fa-solid fa-memory"></i></div>
+                        <div>
+                            <div class="metric-label">RAM Usage</div>
+                            <div class="metric-value fs-4" id="dash-ram">0%</div>
+                        </div>
+                    </div>
+                    <div class="progress"><div id="bar-ram" class="progress-bar bg-warning" style="width: 0%"></div></div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-lg-3">
+                <div class="glass-card p-4 h-100 d-flex align-items-center">
+                    <div class="icon-box" style="background: #e0f2fe; color: #0ea5e9;"><i class="fa-regular fa-clock"></i></div>
+                    <div>
+                        <div class="metric-label">Uptime</div>
+                        <div class="metric-value fs-5" id="dash-uptime">0s</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 col-lg-3">
+                <div class="glass-card p-4 h-100 d-flex align-items-center">
+                    <div class="icon-box" style="background: #f3e8ff; color: #9333ea;"><i class="fa-solid fa-code-commit"></i></div>
+                    <div>
+                        <div class="metric-label">Version</div>
+                        <div class="metric-value fs-5" id="dash-version">...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="glass-card p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0 fw-bold">Database</h5>
+                        <i class="fa-solid fa-database text-muted"></i>
+                    </div>
+                    <div class="d-flex align-items-center text-success mb-2">
+                        <i class="fa-solid fa-circle-check me-2"></i>
+                        <span id="dash-db" class="fw-bold fs-5">Connected</span>
+                    </div>
+                    <p class="text-muted small mb-0">
+                        Latency: <span id="dash-db-latency" class="fw-bold text-dark">--</span> ms
+                        <br>
+                        Pool: <span id="dash-db-pool">Managed by Supabase</span>
+                    </p>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="glass-card p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0 fw-bold">Email Service</h5>
+                        <i class="fa-solid fa-envelope text-muted"></i>
+                    </div>
+                    <div class="d-flex align-items-center text-success mb-2">
+                        <i id="smtp-icon" class="fa-solid fa-circle-check me-2"></i>
+                        <span id="dash-smtp" class="fw-bold fs-5">Connected</span>
+                    </div>
+                    <p class="text-muted small mb-0">
+                        Provider: Gmail / SMTP
+                        <br>
+                        Status: Ready to send notifications
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 1. VIEW SWITCHING LOGIC
+        function switchView(viewName) {
+            const simpleView = document.getElementById('view-simple');
+            const dashView = document.getElementById('view-dashboard');
+            const btns = document.querySelectorAll('.toggle-btn');
+
+            if (viewName === 'simple') {
+                simpleView.classList.remove('d-none');
+                dashView.classList.add('d-none');
+                btns[0].classList.add('active');
+                btns[1].classList.remove('active');
+            } else {
+                simpleView.classList.add('d-none');
+                dashView.classList.remove('d-none');
+                btns[0].classList.remove('active');
+                btns[1].classList.add('active');
+            }
+        }
+
+        // 2. FORMAT UPTIME
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            return `${h}h ${m}m ${s}s`;
+        }
+
+        // 3. FETCH METRICS
+        async function loadMetrics() {
+            const btnIcon = document.querySelector('.fa-rotate-right');
+            btnIcon.classList.add('fa-spin');
+            
+            try {
+                // Call API
+                const res = await fetch("/api/metrics");
+                if (!res.ok) throw new Error("API Error");
+                const data = await res.json();
+
+                // === LOGIC: Determine Overall Health ===
+                // Healthy if DB is Connected AND SMTP is Connected (or Not Configured, which is not an error)
+                const dbOk = (data.database === "Connected");
+                const smtpOk = (data.smtp_server === "Connected" || data.smtp_server === "Not Configured");
+                const isHealthy = dbOk && smtpOk;
+
+                // === UPDATE SIMPLE VIEW ===
+                document.getElementById('hero-text').textContent = isHealthy ? "All Systems Operational" : "System Issues Detected";
+                
+                // DB Text
+                const dbText = document.getElementById('simple-db');
+                dbText.textContent = data.database;
+                dbText.className = dbOk ? "fw-medium text-success" : "fw-medium text-danger";
+
+                // SMTP Text
+                const smtpText = document.getElementById('simple-smtp');
+                smtpText.textContent = data.smtp_server;
+                smtpText.className = (data.smtp_server === "Connected") ? "fw-medium text-success" : "fw-medium text-warning";
+
+                // Banner Color
+                const banner = document.getElementById('hero-banner');
+                if(!isHealthy) {
+                    banner.style.background = "#fef2f2";
+                    banner.style.color = "#991b1b";
+                    banner.style.borderColor = "#fecaca";
+                    banner.querySelector('.pulse-dot').style.backgroundColor = "#ef4444";
+                } else {
+                    banner.style.background = "#ecfdf5";
+                    banner.style.color = "#065f46";
+                    banner.style.borderColor = "#d1fae5";
+                    banner.querySelector('.pulse-dot').style.backgroundColor = "#10b981";
+                }
+
+                // === UPDATE DASHBOARD VIEW ===
+                document.getElementById('dash-cpu').textContent = data.cpu + "%";
+                document.getElementById('bar-cpu').style.width = data.cpu + "%";
+                
+                document.getElementById('dash-ram').textContent = data.ram + "%";
+                document.getElementById('bar-ram').style.width = data.ram + "%";
+
+                document.getElementById('dash-uptime').textContent = formatUptime(data.uptime);
+                document.getElementById('dash-version').textContent = data.version;
+                
+                // DB Card
+                const dashDbEl = document.getElementById('dash-db');
+                dashDbEl.textContent = data.database;
+                dashDbEl.parentElement.className = dbOk ? "d-flex align-items-center text-success mb-2" : "d-flex align-items-center text-danger mb-2";
+                
+                if(data.db_latency_ms !== undefined) {
+                    document.getElementById('dash-db-latency').textContent = data.db_latency_ms;
+                }
+
+                // SMTP Card
+                const dashSmtpEl = document.getElementById('dash-smtp');
+                const smtpIcon = document.getElementById('smtp-icon');
+                dashSmtpEl.textContent = data.smtp_server;
+                
+                if (data.smtp_server === "Connected") {
+                    dashSmtpEl.parentElement.className = "d-flex align-items-center text-success mb-2";
+                    smtpIcon.className = "fa-solid fa-circle-check me-2";
+                } else if (data.smtp_server === "Not Configured") {
+                    dashSmtpEl.parentElement.className = "d-flex align-items-center text-secondary mb-2";
+                    smtpIcon.className = "fa-solid fa-circle-info me-2";
+                } else {
+                    dashSmtpEl.parentElement.className = "d-flex align-items-center text-danger mb-2";
+                    smtpIcon.className = "fa-solid fa-circle-xmark me-2";
+                }
+
+                const now = new Date();
+                document.getElementById('last-updated').textContent = now.toLocaleTimeString();
+
+            } catch (err) {
+                console.error("Fetch error:", err);
+                document.getElementById('hero-text').textContent = "Backend Offline";
+                document.getElementById('simple-db').textContent = "Unknown";
+                
+                const banner = document.getElementById('hero-banner');
+                banner.style.background = "#fee2e2";
+                banner.style.color = "#dc2626";
+                banner.querySelector('.pulse-dot').style.backgroundColor = "#dc2626";
+
+            } finally {
+                setTimeout(() => btnIcon.classList.remove('fa-spin'), 600);
+                setTimeout(loadMetrics, 10000); // Poll every 10s
+            }
+        }
+
+        // Init
+        loadMetrics();
+    </script>
+</body>
+</html>

@@ -1,55 +1,73 @@
 # app/models/application_stage.py
-from sqlmodel import SQLModel, Field, Column
-from sqlalchemy import Integer, String, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-import uuid
+
+from typing import Optional, TYPE_CHECKING
+from uuid import UUID, uuid4
 from datetime import datetime
-from typing import Optional
+from sqlmodel import Field, SQLModel, Relationship
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Uuid
+
+# Prevent circular imports
+if TYPE_CHECKING:
+    from app.models.application import Application
+    from app.models.user import User
+    from app.models.school import School
+    from app.models.department import Department
 
 class ApplicationStage(SQLModel, table=True):
     __tablename__ = "application_stages"
 
-    id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        sa_column=Column(PG_UUID(as_uuid=True), primary_key=True)
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(Uuid(as_uuid=True), primary_key=True)
     )
 
-    application_id: uuid.UUID = Field(
-        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("applications.id"), nullable=False)
+    application_id: UUID = Field(
+        sa_column=Column(Uuid(as_uuid=True), ForeignKey("applications.id"), nullable=False)
+    )
+    
+    # --------------------------------------------------------
+    # ROUTING LOGIC
+    # --------------------------------------------------------
+    # Critical for Dean/School Office stages
+    school_id: Optional[int] = Field(
+        default=None, 
+        sa_column=Column(Integer, ForeignKey("schools.id"), nullable=True)
     )
 
-    department_id: int = Field(
-        sa_column=Column(Integer, ForeignKey("departments.id"), nullable=False)
+    # Handles Lab/Department/HOD specific stages
+    department_id: Optional[int] = Field(
+        default=None, 
+        sa_column=Column(Integer, ForeignKey("departments.id"), nullable=True)
     )
 
-    status: str = Field(
-        sa_column=Column(String, nullable=False)
-    )
+    # --------------------------------------------------------
+    # STAGE DETAILS
+    # --------------------------------------------------------
+    verifier_role: str = Field(sa_column=Column(String(50), nullable=False))
+    status: str = Field(default="pending", sa_column=Column(String(32), default="pending"))
+    
+    comments: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
 
-    priority: str = Field(
-        sa_column=Column(String, nullable=False, default="Low")
+    # Link to the User who verified this stage
+    verified_by: Optional[UUID] = Field(
+        default=None, 
+        sa_column=Column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=True)
     )
+    
+    verified_at: Optional[datetime] = Field(default=None)
 
-    reviewer_id: Optional[uuid.UUID] = Field(
-        default=None,
-        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
-    )
+    sequence_order: int = Field(default=1, sa_column=Column(Integer, nullable=False))
 
-    remarks: Optional[str] = Field(
-        default=None,
-        sa_column=Column(String)
-    )
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    reviewed_at: Optional[datetime] = Field(
-        default=None,
-        sa_column=Column(DateTime(timezone=True))
-    )
+    # --------------------------------------------------------
+    # RELATIONSHIPS (Must match back_populates in other models)
+    # --------------------------------------------------------
+    application: "Application" = Relationship(back_populates="stages")
+    
+    verifier: Optional["User"] = Relationship(back_populates="verified_stages")
 
-    sequence_order: int = Field(
-        sa_column=Column(Integer, nullable=False)
-    )
+    school: Optional["School"] = Relationship(back_populates="stages")
 
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        sa_column=Column(DateTime(timezone=True))
-    )
+    department: Optional["Department"] = Relationship(back_populates="stages")
