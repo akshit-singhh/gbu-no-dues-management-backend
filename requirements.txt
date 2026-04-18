@@ -4,7 +4,8 @@ uvicorn==0.38.0
 sqlmodel==0.0.27
 SQLAlchemy==2.0.44
 aiomysql==0.2.0
-pymysql==1.1.0
+pymysql==1.1.1
+asyncpg==0.30.0
 pydantic==2.12.4
 pydantic-settings==2.12.0
 email-validator==2.3.0
