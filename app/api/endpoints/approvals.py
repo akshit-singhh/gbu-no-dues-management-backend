@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select, text
-from sqlalchemy import or_, and_
+from sqlmodel import select
+from sqlalchemy import or_, and_, cast, String
 from uuid import UUID
 from typing import Optional, Any
 from datetime import datetime
@@ -15,6 +15,7 @@ from app.models.user import User, UserRole
 from app.models.application import Application, ApplicationStatus
 from app.models.application_stage import ApplicationStage
 from app.models.student import Student
+from app.models.school import School
 from app.models.department import Department
 from app.models.audit import AuditLog 
 from app.schemas.approval import StageActionRequest, StageActionResponse, AdminOverrideRequest
@@ -87,13 +88,14 @@ async def list_all_applications(
     # -------------------------------------------------------
     if search:
         clean_search = search.strip().upper().replace(" ", "").replace("-", "")
+        clean_uuid_search = search.strip().lower().replace("-", "")
         query = query.where(
             or_(
                 Student.full_name.ilike(f"%{search}%"),
                 Student.roll_number.ilike(f"%{search}%"),
                 Student.enrollment_number.ilike(f"%{search}%"),
                 Application.display_id.ilike(f"%{clean_search}%"),
-                text(f"CAST(applications.id AS TEXT) ILIKE '%{search}%'")
+                cast(Application.id, String).ilike(f"%{clean_uuid_search}%")
             )
         )
 
@@ -491,80 +493,117 @@ async def get_enriched_application_details(
     session: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    
-    # 1. Fetch Application first
     app = await session.get(Application, application_id)
     if not app:
         raise HTTPException(404, "Application not found")
 
-    # 2. Corrected SQL
-    query_text = """
-        SELECT 
-            a.id AS application_id,
-            a.display_id,
-            a.status AS application_status,
-            a.current_stage_order,
-            a.created_at,
-            a.updated_at,
-            a.remarks AS application_remarks,
-            a.student_remarks,
-            a.proof_document_url,
-            
-            s.full_name AS student_name,
-            s.roll_number,
-            s.enrollment_number,
-            s.mobile_number AS student_mobile,
-            s.email AS student_email,
-            s.father_name,
-            s.mother_name,
-            s.gender,
-            s.category,
-            s.dob,
-            s.permanent_address,
-            s.domicile,
-            s.is_hosteller,
-            s.hostel_name,
-            s.hostel_room,
-            s.section, 
-            s.admission_year,
-            s.admission_type,
-            
-            sch.name AS school_name,
-            d.name AS department_name,
-            d.code AS department_code
-            
-        FROM applications a
-        JOIN students s ON s.id = a.student_id
-        LEFT JOIN schools sch ON sch.id = s.school_id
-        LEFT JOIN departments d ON d.id = s.department_id
-        WHERE a.id = :app_id
-    """
-    
-    params = {"app_id": app.id}
+    details_row = (
+        await session.execute(
+            select(Application, Student, School.name, Department.name, Department.code)
+            .join(Student, Student.id == Application.student_id)
+            .outerjoin(School, School.id == Student.school_id)
+            .outerjoin(Department, Department.id == Student.department_id)
+            .where(Application.id == app.id)
+        )
+    ).first()
 
-    if current_user.role == UserRole.Dean:
+    if not details_row:
+        raise HTTPException(404, "Application not found")
+
+    app_obj, student, school_name, department_name, department_code = details_row
+
+    role_name = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    has_access = False
+
+    if current_user.role == UserRole.Admin:
+        has_access = True
+    elif current_user.role == UserRole.Student:
+        has_access = app_obj.student_id == current_user.student_id
+    elif current_user.role == UserRole.Dean:
         if not current_user.school_id:
-             raise HTTPException(403, "Dean has no school assigned.")
-        query_text += " AND s.school_id = :school_id"
-        params["school_id"] = current_user.school_id
-    
-    if current_user.role == UserRole.HOD:
+            raise HTTPException(403, "Dean has no school assigned.")
+        has_access = student.school_id == current_user.school_id
+    elif current_user.role == UserRole.HOD:
         if not current_user.department_id:
-             raise HTTPException(403, "HOD has no department assigned.")
-        query_text += " AND s.department_id = :department_id"
-        params["department_id"] = current_user.department_id
+            raise HTTPException(403, "HOD has no department assigned.")
+        has_access = student.department_id == current_user.department_id
+    elif current_user.role == UserRole.Staff:
+        if current_user.school_id:
+            staff_stage = (
+                await session.execute(
+                    select(ApplicationStage.id)
+                    .where(
+                        ApplicationStage.application_id == app_obj.id,
+                        ApplicationStage.verifier_role == "staff",
+                        ApplicationStage.school_id == current_user.school_id,
+                        ApplicationStage.sequence_order <= app_obj.current_stage_order,
+                    )
+                    .limit(1)
+                )
+            ).first()
+            has_access = staff_stage is not None
+        elif current_user.department_id:
+            staff_stage = (
+                await session.execute(
+                    select(ApplicationStage.id)
+                    .where(
+                        ApplicationStage.application_id == app_obj.id,
+                        ApplicationStage.department_id == current_user.department_id,
+                        ApplicationStage.sequence_order <= app_obj.current_stage_order,
+                    )
+                    .limit(1)
+                )
+            ).first()
+            has_access = staff_stage is not None
+    else:
+        role_stage = (
+            await session.execute(
+                select(ApplicationStage.id)
+                .where(
+                    ApplicationStage.application_id == app_obj.id,
+                    ApplicationStage.verifier_role == role_name,
+                    ApplicationStage.sequence_order <= app_obj.current_stage_order,
+                )
+                .limit(1)
+            )
+        ).first()
+        has_access = role_stage is not None
 
-    try:
-        result = await session.execute(text(query_text), params)
-        data = result.mappings().one_or_none()
-    except Exception as e:
-        print(f"SQL Error: {e}")
-        raise HTTPException(500, f"Database error: {str(e)}")
-
-    if not data:
+    if not has_access:
         raise HTTPException(404, "Application not found or access denied")
 
-    response_dict = dict(data)
+    response_dict = {
+        "application_id": app_obj.id,
+        "display_id": app_obj.display_id,
+        "application_status": app_obj.status,
+        "current_stage_order": app_obj.current_stage_order,
+        "created_at": app_obj.created_at,
+        "updated_at": app_obj.updated_at,
+        "application_remarks": app_obj.remarks,
+        "student_remarks": app_obj.student_remarks,
+        "proof_document_url": app_obj.proof_document_url,
+        "student_name": student.full_name,
+        "roll_number": student.roll_number,
+        "enrollment_number": student.enrollment_number,
+        "student_mobile": student.mobile_number,
+        "student_email": student.email,
+        "father_name": student.father_name,
+        "mother_name": student.mother_name,
+        "gender": student.gender,
+        "category": student.category,
+        "dob": student.dob,
+        "permanent_address": student.permanent_address,
+        "domicile": student.domicile,
+        "is_hosteller": student.is_hosteller,
+        "hostel_name": student.hostel_name,
+        "hostel_room": student.hostel_room,
+        "section": student.section,
+        "admission_year": student.admission_year,
+        "admission_type": student.admission_type,
+        "school_name": school_name,
+        "department_name": department_name,
+        "department_code": department_code,
+    }
 
     # 3. Fetch Active Stage
     stage_query = select(ApplicationStage).where(ApplicationStage.application_id == app.id)

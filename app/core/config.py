@@ -7,8 +7,15 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------
     # DATABASE CONFIGURATION
     # ------------------------------------------------------------
-    DATABASE_URL: str
+    DATABASE_URL: Optional[str] = None
+    DATABASE_URL_DEVELOPMENT: Optional[str] = None
+    DATABASE_URL_PRODUCTION: Optional[str] = None
+    DATABASE_URL_TEST: Optional[str] = None
+    DATABASE_URL_LOCAL: Optional[str] = None
+    LOCAL_DATABASE_URL: Optional[str] = None
+    TEST_DATABASE_URL: Optional[str] = None
     DB_SSL_VERIFY: bool = True
+    DB_CA_CERT_PATH: Optional[str] = None
     db_ca_cert_path: Optional[str] = None
 
     # ------------------------------------------------------------
@@ -25,6 +32,45 @@ class Settings(BaseSettings):
     def DEBUG(self) -> bool:
         # Now it only returns True if you EXPLICITLY set ENV=development in .env
         return self.ENV.lower() == "development"
+
+    @model_validator(mode='after')
+    def resolve_database_url(self):
+        env = (self.ENV or "development").lower()
+
+        if env in {"development", "dev", "local"}:
+            selected = (
+                self.DATABASE_URL_DEVELOPMENT
+                or self.DATABASE_URL_LOCAL
+                or self.LOCAL_DATABASE_URL
+                or self.DATABASE_URL
+            )
+        elif env in {"production", "prod"}:
+            selected = self.DATABASE_URL_PRODUCTION or self.DATABASE_URL
+        elif env in {"test", "testing"}:
+            selected = (
+                self.DATABASE_URL_TEST
+                or self.TEST_DATABASE_URL
+                or self.DATABASE_URL_DEVELOPMENT
+                or self.DATABASE_URL
+            )
+        else:
+            selected = self.DATABASE_URL
+
+        if not selected:
+            raise ValueError(
+                "DATABASE URL is missing. Set DATABASE_URL or an environment-specific URL "
+                "(DATABASE_URL_DEVELOPMENT / DATABASE_URL_PRODUCTION / DATABASE_URL_TEST)."
+            )
+
+        self.DATABASE_URL = selected
+
+        # Backward compatibility: support legacy lowercase setting name.
+        if self.DB_CA_CERT_PATH and not self.db_ca_cert_path:
+            self.db_ca_cert_path = self.DB_CA_CERT_PATH
+        elif self.db_ca_cert_path and not self.DB_CA_CERT_PATH:
+            self.DB_CA_CERT_PATH = self.db_ca_cert_path
+
+        return self
 
     # ------------------------------------------------------------
     # SECURITY / CAPTCHA (Cloudflare Turnstile)
@@ -80,6 +126,14 @@ class Settings(BaseSettings):
     # REDIS
     # ------------------------------------------------------------
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # ------------------------------------------------------------
+    # DATADOG APM
+    # ------------------------------------------------------------
+    DD_TRACE_ENABLED: bool = False
+    DD_SERVICE: str = "gbu-no-dues-backend"
+    DD_ENV: Optional[str] = None
+    DD_VERSION: Optional[str] = None
 
     # ------------------------------------------------------------
     # FRONTEND / CORS CONFIGURATION

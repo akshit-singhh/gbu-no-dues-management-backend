@@ -5,8 +5,7 @@ from typing import Optional, TYPE_CHECKING, List
 from uuid import UUID, uuid4
 from datetime import datetime
 from sqlmodel import Field, SQLModel, Relationship
-from sqlalchemy import Column, String, DateTime
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import Column, String, DateTime, Uuid
 
 # Prevent circular imports
 if TYPE_CHECKING:
@@ -44,14 +43,14 @@ class User(SQLModel, table=True):
 
     id: UUID = Field(
         default_factory=uuid4,
-        sa_column=Column(PG_UUID(as_uuid=True), primary_key=True)
+        sa_column=Column(Uuid(as_uuid=True), primary_key=True)
     )
 
-    name: str = Field(sa_column=Column(String, nullable=False))
-    email: str = Field(sa_column=Column(String, unique=True, index=True, nullable=False))
-    password_hash: str = Field(sa_column=Column(String, nullable=False))
+    name: str = Field(sa_column=Column(String(150), nullable=False))
+    email: str = Field(sa_column=Column(String(254), unique=True, index=True, nullable=False))
+    password_hash: str = Field(sa_column=Column(String(255), nullable=False))
     
-    role: UserRole = Field(sa_column=Column(String, default=UserRole.Student.value))
+    role: UserRole = Field(sa_column=Column(String(50), default=UserRole.Student.value))
     
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -70,7 +69,7 @@ class User(SQLModel, table=True):
     # --------------------------------------------------------
     #  PASSWORD RESET
     # --------------------------------------------------------
-    otp_code: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
+    otp_code: Optional[str] = Field(default=None, sa_column=Column(String(12), nullable=True))
     otp_expires_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))
 
     # --------------------------------------------------------

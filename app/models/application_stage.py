@@ -4,8 +4,7 @@ from typing import Optional, TYPE_CHECKING
 from uuid import UUID, uuid4
 from datetime import datetime
 from sqlmodel import Field, SQLModel, Relationship
-from sqlalchemy import Column, Integer, String, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Uuid
 
 # Prevent circular imports
 if TYPE_CHECKING:
@@ -19,11 +18,11 @@ class ApplicationStage(SQLModel, table=True):
 
     id: UUID = Field(
         default_factory=uuid4,
-        sa_column=Column(PG_UUID(as_uuid=True), primary_key=True)
+        sa_column=Column(Uuid(as_uuid=True), primary_key=True)
     )
 
     application_id: UUID = Field(
-        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("applications.id"), nullable=False)
+        sa_column=Column(Uuid(as_uuid=True), ForeignKey("applications.id"), nullable=False)
     )
     
     # --------------------------------------------------------
@@ -44,15 +43,15 @@ class ApplicationStage(SQLModel, table=True):
     # --------------------------------------------------------
     # STAGE DETAILS
     # --------------------------------------------------------
-    verifier_role: str = Field(sa_column=Column(String, nullable=False))
-    status: str = Field(default="pending", sa_column=Column(String, default="pending"))
+    verifier_role: str = Field(sa_column=Column(String(50), nullable=False))
+    status: str = Field(default="pending", sa_column=Column(String(32), default="pending"))
     
-    comments: Optional[str] = Field(default=None, sa_column=Column(String, nullable=True))
+    comments: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
 
     # Link to the User who verified this stage
     verified_by: Optional[UUID] = Field(
         default=None, 
-        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+        sa_column=Column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=True)
     )
     
     verified_at: Optional[datetime] = Field(default=None)

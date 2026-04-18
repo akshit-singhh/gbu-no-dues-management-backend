@@ -18,7 +18,7 @@ This API powers the full no-dues lifecycle:
 
 - FastAPI (async API framework)
 - SQLModel + SQLAlchemy AsyncSession (ORM and database access)
-- PostgreSQL (primary data store)
+- MySQL (primary data store via aiomysql + PyMySQL)
 - Redis (rate limiting and traffic counters)
 - Cloudflare Turnstile (bot protection on auth endpoints)
 - SMTP (email notifications)
@@ -42,6 +42,12 @@ This API powers the full no-dues lifecycle:
 - SECRET_KEY
 - TURNSTILE_SECRET_KEY (required in production mode)
 
+Database URL resolution is environment-aware:
+
+- `ENV=development`: `DATABASE_URL_DEVELOPMENT` -> `DATABASE_URL_LOCAL` -> `LOCAL_DATABASE_URL` -> `DATABASE_URL`
+- `ENV=production`: `DATABASE_URL_PRODUCTION` -> `DATABASE_URL`
+- `ENV=test`: `DATABASE_URL_TEST` -> `TEST_DATABASE_URL` -> `DATABASE_URL_DEVELOPMENT` -> `DATABASE_URL`
+
 ### Important optional variables
 
 - ENV (development or production)
@@ -59,6 +65,8 @@ This API powers the full no-dues lifecycle:
 - ADMIN_PASSWORD
 - ADMIN_NAME
 - DB_SSL_VERIFY
+- DB_USE_SSL
+- DB_CA_CERT_PATH
 - SUPABASE_URL
 - SUPABASE_KEY
 - JOB_SECRET
@@ -70,12 +78,109 @@ This API powers the full no-dues lifecycle:
 - FTP_PASSIVE_MODE
 - FTP_USE_TLS
 - FTP_CERTIFICATE_DIR
+- DD_TRACE_ENABLED
+- DD_SERVICE
+- DD_ENV
+- DD_VERSION
+- DD_AGENT_HOST
+- DD_TRACE_AGENT_PORT
+- DD_LOGS_INJECTION
+- DD_RUNTIME_METRICS_ENABLED
 
 ### Notes
 
 - In production mode, TURNSTILE_SECRET_KEY cannot be dummy/missing.
 - REDIS_URL defaults to local Redis if not overridden.
 - Request ID is added in response header: X-Request-ID.
+- Current dependency compatibility: passlib[bcrypt]==1.7.4 should be used with bcrypt==4.0.1.
+- MySQL and PostgreSQL URLs are auto-normalized to async drivers (`mysql+aiomysql`, `postgresql+asyncpg`) in database bootstrap.
+
+## 4.1 Datadog APM (Endpoint Tracing)
+
+This project is integrated with Datadog tracing at app startup.
+When `DD_TRACE_ENABLED=true`, FastAPI endpoints are auto-instrumented and traces can include DB/Redis/httpx spans.
+
+### Minimal environment for backend
+
+- `DD_TRACE_ENABLED=true`
+- `DD_SERVICE=gbu-no-dues-backend`
+- `DD_ENV=production`
+- `DD_VERSION=1.6.0` (or your release/tag)
+- `DD_AGENT_HOST=datadog-agent` (or your agent hostname/IP)
+- `DD_TRACE_AGENT_PORT=8126`
+- `DD_LOGS_INJECTION=true`
+- `DD_RUNTIME_METRICS_ENABLED=true`
+
+### Datadog Agent (Docker Compose)
+
+An optional `datadog-agent` service is included under the `monitoring` profile.
+
+Run with monitoring enabled:
+
+```bash
+docker compose --profile monitoring up -d --build
+```
+
+You must set:
+
+- `DD_API_KEY=<your_datadog_api_key>`
+- `DD_SITE=datadoghq.com` (or your Datadog site)
+
+### Local development with uvicorn (no app container)
+
+If you run the API directly using uvicorn, point tracing to a local agent:
+
+- `DD_TRACE_ENABLED=true`
+- `DD_ENV=development`
+- `DD_AGENT_HOST=127.0.0.1`
+- `DD_TRACE_AGENT_PORT=8126`
+
+Start backend locally:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --reload
+```
+
+Verify local Datadog agent APM port is reachable:
+
+```powershell
+Test-NetConnection 127.0.0.1 -Port 8126
+```
+
+If port 8126 is not reachable, traces will be generated in-app but cannot be exported to Datadog.
+
+### Production checklist
+
+1. Ensure backend can reach Datadog Agent on `8126`.
+2. Set `DD_ENV` and `DD_VERSION` consistently across releases.
+3. Keep `DD_LOGS_INJECTION=true` to correlate logs with traces.
+4. Verify traces in Datadog APM for resources like `GET /api/...`.
+5. Start with full sampling, then tune in Datadog if traffic is high.
+
+### Migration Notes (PostgreSQL to MySQL)
+
+Use this one-shot checklist when deploying the MySQL version of this backend:
+
+1. Back up PostgreSQL data before cutover.
+2. Provision MySQL (8.0+) with utf8mb4 charset/collation and create target database/user.
+3. Update `DATABASE_URL` to async MySQL format, for example:
+   `mysql+aiomysql://user:password@host:3306/db_name`
+4. Install dependencies from `requirements.txt` in the deployment environment.
+5. Start the app once to run startup DB checks and schema sync (`init_db`) automatically.
+6. Run seeding (startup already calls `seed_all`) and verify admin account and core metadata are present.
+7. Smoke test key endpoints:
+
+- `/api/admin/login`
+- `/api/approvals/pending`
+- `/api/approvals/enriched/{application_id}`
+- `/api/metrics/health/details`
+
+8. Validate Redis behavior: timeouts should return status payloads and not crash API responses.
+9. Monitor logs for SQL dialect issues (PostgreSQL-specific functions/operators in custom queries).
+
+Important:
+
+- This project does not include an automatic data conversion pipeline from PostgreSQL to MySQL. If historical data must be preserved, migrate data separately using ETL or dump/transform/load scripts.
 
 ## 5. Local Development
 
@@ -242,7 +347,7 @@ This section lists all mounted API endpoints from app/main.py.
 | GET    | /api/approvals/pending                   | Admin/Student/Verifier | List pending items             |
 | GET    | /api/approvals/history                   | Admin/Student/Verifier | Approval history               |
 | GET    | /api/approvals/{application_id}/stages   | Admin/Student/Verifier | Stage details                  |
-| GET    | /api/approvals/enriched/{application_id} | Admin/Verifier         | Enriched application view      |
+| GET    | /api/approvals/enriched/{application_id} | Admin/Student/Verifier | Enriched application view      |
 | POST   | /api/approvals/{stage_id}/approve        | Verifier/Admin         | Approve stage                  |
 | POST   | /api/approvals/{stage_id}/reject         | Verifier/Admin         | Reject stage                   |
 | POST   | /api/approvals/admin/override-stage      | Admin                  | Force stage override           |
@@ -299,6 +404,7 @@ This section lists all mounted API endpoints from app/main.py.
   - `rate_limits` clears `LIMITER/*`
   - `traffic` clears `TRAFFIC:*`
 - Global flush behavior is intentionally removed to avoid deleting unrelated Redis state.
+- Redis timeout and close errors are handled gracefully in metrics endpoints; they return status payloads instead of raising 500 during connection teardown.
 
 ### 8.11.2 Jobs behavior notes
 
@@ -462,8 +568,15 @@ Success response (excerpt):
 - Verify DATABASE_URL is valid and reachable.
 - Startup runs DB connection test and seeding.
 - Missing linked entities (student_id, user_id relations) will fail writes.
+- MySQL requires explicit lengths on VARCHAR columns, so String columns in models must be defined with lengths.
+- PostgreSQL-specific SQL functions such as `initcap` and `extract(epoch from ...)` should not be used in MySQL-targeted queries.
 
-## 11.6 Storage and file access
+## 11.6 Dependency compatibility troubleshooting
+
+- If you see `AttributeError: module 'bcrypt' has no attribute '__about__'`, pin bcrypt to 4.0.1 with passlib 1.7.4.
+- Reinstall dependencies after changes: `pip install -r requirements.txt`.
+
+## 11.7 Storage and file access
 
 - Proof and certificate file URLs are signed before returning to clients.
 - Check configured storage backend and credentials for broken links.
@@ -483,7 +596,7 @@ python -m pytest -q
 
 - Health endpoint: /api/metrics/health
 - Logs endpoints for admins: /api/admin/system-logs and /api/admin/audit-logs
-- Stale notification cron endpoint uses shared secret in query string.
+- Stale notification cron endpoint uses `X-Job-Secret` request header.
 
 ## 14. Contribution Checklist
 

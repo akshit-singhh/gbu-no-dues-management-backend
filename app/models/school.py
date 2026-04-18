@@ -18,12 +18,12 @@ class School(SQLModel, table=True):
     )
 
     name: str = Field(
-        sa_column=Column(String, nullable=False, unique=True)
+        sa_column=Column(String(128), nullable=False, unique=True)
     )
 
     code: Optional[str] = Field(
         default=None,
-        sa_column=Column(String, unique=True, nullable=True)
+        sa_column=Column(String(20), unique=True, nullable=True)
     )
 
     # --------------------------------------------------------

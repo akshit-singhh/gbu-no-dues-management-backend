@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   backend:
@@ -13,6 +13,15 @@ services:
       - FORWARDED_ALLOW_IPS=*
       # Add your domain to CORS so the frontend can talk to it
       - BACKEND_CORS_ORIGINS=["http://localhost:3000","https://akshitsinghhdev.qzz.io","https://localhost:5173"]
+      # Datadog APM (env-driven; safe to keep disabled by default)
+      - DD_TRACE_ENABLED=${DD_TRACE_ENABLED:-false}
+      - DD_SERVICE=${DD_SERVICE:-gbu-no-dues-backend}
+      - DD_ENV=${DD_ENV:-production}
+      - DD_VERSION=${DD_VERSION:-unknown}
+      - DD_AGENT_HOST=${DD_AGENT_HOST:-datadog-agent}
+      - DD_TRACE_AGENT_PORT=${DD_TRACE_AGENT_PORT:-8126}
+      - DD_LOGS_INJECTION=${DD_LOGS_INJECTION:-true}
+      - DD_RUNTIME_METRICS_ENABLED=${DD_RUNTIME_METRICS_ENABLED:-true}
     volumes:
       - ./app/static/certificates:/app/static/certificates
     dns:
@@ -30,3 +39,21 @@ services:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN} # Ensure this token is in your .env file
     depends_on:
       - backend
+
+  datadog-agent:
+    image: datadog/agent:latest
+    container_name: gbu_datadog_agent
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    environment:
+      - DD_API_KEY=${DD_API_KEY}
+      - DD_SITE=${DD_SITE:-datadoghq.com}
+      - DD_APM_ENABLED=true
+      - DD_APM_NON_LOCAL_TRAFFIC=true
+      - DD_LOGS_ENABLED=true
+      - DD_CONTAINER_EXCLUDE_LOGS=name:gbu_datadog_agent
+      - DD_ENV=${DD_ENV:-production}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro

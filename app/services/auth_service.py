@@ -223,7 +223,7 @@ async def authenticate_user(session: AsyncSession, email: str, password: str) ->
 
 
 # ============================================================================
-# AUTHENTICATE STUDENT LOGIN (Updated with School Code Mapping)
+# AUTHENTICATE STUDENT LOGIN (Roll No / Enrollment No only)
 # ============================================================================
 async def authenticate_student(
     session: AsyncSession,
@@ -236,12 +236,11 @@ async def authenticate_student(
     # 1. Fetch Student 
     query = (
         select(Student)
-        .options(selectinload(Student.school)) # ✅ Keep eager loading
+        .options(selectinload(Student.school))
         .where(
             or_(
                 Student.enrollment_number.ilike(identifier),
-                Student.roll_number.ilike(identifier),
-                Student.email.ilike(identifier)
+                Student.roll_number.ilike(identifier)
             )
         )
     )
@@ -267,10 +266,7 @@ async def authenticate_student(
     user = result.scalars().first()
     
     if not user:
-        # Fallback: Try finding user by email if link is broken
-        user = await get_user_by_email(session, student.email)
-        if not user:
-            return None
+        return None
 
     # Verify Role
     user_role_val = user.role.value if hasattr(user.role, "value") else user.role
@@ -327,6 +323,35 @@ async def create_login_response(user: User, session: AsyncSession) -> TokenWithU
     if user.student and user.student.school_id:
         user_school_id = user.student.school_id
 
+    # Role context for frontend display (does not alter authorization role).
+    user_role_scope = None
+    user_role_display = None
+    if role_str == "staff":
+        if user_school_id is not None:
+            user_role_scope = "school_office"
+            user_role_display = "School Office Staff"
+        elif user_dept_id is not None:
+            user_role_scope = "department"
+            user_role_display = "Department Staff"
+        else:
+            user_role_scope = "unassigned"
+            user_role_display = "Staff"
+    elif role_str == "dean":
+        user_role_scope = "school"
+        user_role_display = "School Dean"
+    elif role_str == "hod":
+        user_role_scope = "department"
+        user_role_display = "Head of Department"
+    elif role_str == "admin":
+        user_role_scope = "global"
+        user_role_display = "Admin"
+    elif role_str == "student":
+        user_role_scope = "student"
+        user_role_display = "Student"
+    else:
+        user_role_scope = "department"
+        user_role_display = role_str.replace("_", " ").title()
+
     # 1. Fetch Department Info (Safe Code Access)
     department_name = None
     department_code = None
@@ -356,6 +381,7 @@ async def create_login_response(user: User, session: AsyncSession) -> TokenWithU
     # 3. Create Token Claims
     token_data = {
         "role": role_str,
+        "role_scope": user_role_scope,
         "department_id": user_dept_id,
         "department_code": department_code, # Useful for frontend logic
         "school_id": user_school_id,
@@ -376,6 +402,8 @@ async def create_login_response(user: User, session: AsyncSession) -> TokenWithU
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user_name=user.name,
         user_role=role_str,
+        user_role_scope=user_role_scope,
+        user_role_display=user_role_display,
         user_id=user.id,
         
         department_id=user_dept_id,

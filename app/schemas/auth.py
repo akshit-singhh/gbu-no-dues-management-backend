@@ -69,6 +69,8 @@ class Token(BaseModel):
 class TokenWithUser(Token):
     user_name: str
     user_role: str
+    user_role_scope: Optional[str] = None
+    user_role_display: Optional[str] = None
     user_id: UUID
     
     # Extra Context Fields
@@ -76,7 +78,6 @@ class TokenWithUser(Token):
     department_name: Optional[str] = None
     school_id: Optional[int] = None
     school_name: Optional[str] = None
-    student_id: Optional[str] = None
     school_code: Optional[str] = None 
     student_id: Optional[str] = None
 

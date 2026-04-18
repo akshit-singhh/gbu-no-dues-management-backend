@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from sqlmodel import select
 import redis.asyncio as redis
+from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
 import asyncio
 import time
 import socket
@@ -27,6 +28,11 @@ router = APIRouter(
 # DEPLOY_TIMESTAMP env var is not set (e.g. local dev).
 _SERVER_START_TIME = int(time.time())
 
+# Cooldown window to avoid hammering Redis and flooding logs when upstream is unstable.
+_REDIS_METRICS_COOLDOWN_SECONDS = 30
+_redis_metrics_cooldown_until = 0.0
+_redis_metrics_last_reason = "unknown"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -39,7 +45,40 @@ def _redis_client(timeout: int = 2) -> redis.Redis:
         decode_responses=True,
         socket_connect_timeout=timeout,
         socket_timeout=timeout,
+        retry_on_timeout=True,
     )
+
+
+def _redis_metrics_in_cooldown() -> bool:
+    return time.time() < _redis_metrics_cooldown_until
+
+
+def _mark_redis_metrics_cooldown(reason: str) -> None:
+    global _redis_metrics_cooldown_until, _redis_metrics_last_reason
+    _redis_metrics_cooldown_until = time.time() + _REDIS_METRICS_COOLDOWN_SECONDS
+    _redis_metrics_last_reason = reason
+    logger.warning(
+        f"Redis metrics degraded: {reason}. Cooling down for {_REDIS_METRICS_COOLDOWN_SECONDS}s."
+    )
+
+
+def _redis_metrics_cooldown_response(status: str) -> dict:
+    retry_after = max(1, int(_redis_metrics_cooldown_until - time.time()))
+    return {
+        "status": status,
+        "message": f"Redis temporarily unavailable ({_redis_metrics_last_reason}).",
+        "retry_after_seconds": retry_after,
+    }
+
+
+async def _safe_close_redis(client) -> None:
+    """Best-effort redis close: never fail request on teardown."""
+    if not client:
+        return
+    try:
+        await client.aclose()
+    except Exception as e:
+        logger.warning(f"Redis close warning: {e}")
 
 
 async def _write_audit(session: AsyncSession, user: User, action: str, detail: str) -> None:
@@ -133,8 +172,7 @@ async def health_details(_: User = Depends(require_admin)):
         except Exception:
             redis_status = "error"
         finally:
-            if client:
-                await client.aclose()
+            await _safe_close_redis(client)
 
     return {
         "status": "online",
@@ -203,6 +241,9 @@ async def get_redis_statistics(_: User = Depends(require_admin)):
     if not settings.REDIS_URL:
         return {"status": "disabled", "message": "Redis is not configured."}
 
+    if _redis_metrics_in_cooldown():
+        return _redis_metrics_cooldown_response("timeout")
+
     client = None
     try:
         client = _redis_client()
@@ -248,16 +289,17 @@ async def get_redis_statistics(_: User = Depends(require_admin)):
             },
         }
 
-    except redis.ConnectionError:
-        return {"status": "offline", "message": "Redis server unreachable."}
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, RedisTimeoutError):
+        _mark_redis_metrics_cooldown("timeout")
         return {"status": "timeout", "message": "Redis did not respond in time."}
+    except RedisConnectionError:
+        _mark_redis_metrics_cooldown("connection_error")
+        return {"status": "offline", "message": "Redis server unreachable."}
     except Exception as e:
         logger.error(f"Redis stats error: {e}")
         return {"status": "error", "message": "Failed to retrieve Redis stats."}
     finally:
-        if client:
-            await client.aclose()
+        await _safe_close_redis(client)
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +313,13 @@ MAX_TRAFFIC_KEYS = 200  # hard cap – prevents unbounded scan on large datasets
 async def get_traffic_statistics(_: User = Depends(require_admin)):
     if not settings.REDIS_URL:
         return {"status": "disabled", "data": []}
+
+    if _redis_metrics_in_cooldown():
+        return {
+            "total_endpoints_tracked": 0,
+            "data": [],
+            **_redis_metrics_cooldown_response("timeout"),
+        }
 
     client = None
     try:
@@ -308,12 +357,27 @@ async def get_traffic_statistics(_: User = Depends(require_admin)):
             "data": traffic_data,
         }
 
+    except (asyncio.TimeoutError, RedisTimeoutError):
+        _mark_redis_metrics_cooldown("timeout")
+        return {
+            "status": "timeout",
+            "message": "Redis did not respond in time.",
+            "total_endpoints_tracked": 0,
+            "data": [],
+        }
+    except RedisConnectionError:
+        _mark_redis_metrics_cooldown("connection_error")
+        return {
+            "status": "offline",
+            "message": "Redis server unreachable.",
+            "total_endpoints_tracked": 0,
+            "data": [],
+        }
     except Exception as e:
         logger.error(f"Traffic stats error: {e}")
         return {"status": "error", "message": "Failed to retrieve traffic stats."}
     finally:
-        if client:
-            await client.aclose()
+        await _safe_close_redis(client)
 
 
 # ---------------------------------------------------------------------------
@@ -380,5 +444,4 @@ async def clear_system_cache(
         logger.error(f"Cache clear error: {e}")
         raise HTTPException(status_code=500, detail="Failed to clear cache.")
     finally:
-        if client:
-            await client.aclose()
+        await _safe_close_redis(client)

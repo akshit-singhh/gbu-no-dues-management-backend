@@ -1,6 +1,5 @@
 from sqlmodel import SQLModel, Field, Column
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy import ForeignKey, DateTime, Text, String
+from sqlalchemy import ForeignKey, DateTime, Text, String, Uuid
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -10,19 +9,19 @@ class Certificate(SQLModel, table=True):
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
-        sa_column=Column(PG_UUID(as_uuid=True), primary_key=True)
+        sa_column=Column(Uuid(as_uuid=True), primary_key=True)
     )
 
     # Corresponds to: application_id uuid null ... unique
     application_id: Optional[uuid.UUID] = Field(
         default=None,
-        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), unique=True, nullable=True)
+        sa_column=Column(Uuid(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), unique=True, nullable=True)
     )
 
     # Corresponds to: generated_by uuid null
     generated_by: Optional[uuid.UUID] = Field(
         default=None,
-        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+        sa_column=Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     )
 
     # Corresponds to: pdf_url text not null

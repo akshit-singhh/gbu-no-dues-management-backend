@@ -1,3 +1,7 @@
+from app.core.apm import bootstrap_datadog
+
+bootstrap_datadog()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -11,7 +15,7 @@ import asyncio
 import redis.asyncio as redis
 
 # Database & Seeding
-from app.core.database import test_connection, init_db
+from app.core.database import test_connection, init_db, close_db
 from app.core.seeding_logic import seed_all
 
 # Rate Limiting
@@ -20,6 +24,7 @@ from app.core.rate_limiter import limiter
 
 # Config
 from app.core.config import settings
+from app.core.apm import bind_trace_context, tag_active_span, set_active_span_resource_for_request
 
 # System Logging
 from app.services.audit_service import log_system_event
@@ -45,9 +50,11 @@ from app.api.endpoints import (
 # LOGURU CONFIGURATION
 # ------------------------------------------------------------
 logger.remove()
+logger.configure(patcher=bind_trace_context)
 logger.add(
     sys.stdout,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+           "<magenta>trace_id={extra[dd_trace_id]} span_id={extra[dd_span_id]}</magenta> | "
            "<level>{level}</level> | "
            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
            "<level>{message}</level>",
@@ -101,6 +108,7 @@ async def lifespan(app: FastAPI):
 
     yield
     logger.warning("🛑 Backend shutting down...")
+    await close_db()
 
 # ------------------------------------------------------------
 # FASTAPI APP INIT
@@ -145,10 +153,31 @@ async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExc
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request_id = str(uuid.uuid4())
+
+    tag_active_span(
+        **{
+            "http.request_id": request_id,
+            "app.request.path": request.url.path,
+            "app.request.url": str(request.url),
+        }
+    )
     logger.bind(request_id=request_id).info(f"{request.method} {request.url.path}")
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
+
+    response = None
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        route = request.scope.get("route")
+        route_path = getattr(route, "path_format", None) or getattr(route, "path", None)
+        set_active_span_resource_for_request(
+            method=request.method,
+            raw_path=request.url.path,
+            route_path=route_path,
+        )
+
+        if response is not None:
+            response.headers["X-Request-ID"] = request_id
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

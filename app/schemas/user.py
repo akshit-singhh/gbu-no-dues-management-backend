@@ -48,6 +48,8 @@ class UserUpdate(BaseModel):
 class UserRead(UserBase):
     id: UUID
     role: UserRole | str
+    role_scope: Optional[str] = None
+    role_display: Optional[str] = None
     
     # IDs (For Frontend Keys)
     department_id: Optional[int] = None
@@ -71,8 +73,45 @@ class UserRead(UserBase):
         Converts the SQLAlchemy object to a Dictionary and populates
         missing fields (school_name, school_code, etc.) manually.
         """
-        # If it's already a dict, just return it
+        # If it's already a dict, enrich role context if missing and return.
         if isinstance(data, dict):
+            role_val = data.get("role", "")
+            role_str = str(role_val.value if hasattr(role_val, "value") else role_val).lower()
+            sch_id = data.get("school_id")
+            dept_id = data.get("department_id")
+
+            role_scope = data.get("role_scope")
+            role_display = data.get("role_display")
+
+            if role_scope is None or role_display is None:
+                if role_str == "staff":
+                    if sch_id is not None:
+                        role_scope = "school_office"
+                        role_display = "School Office Staff"
+                    elif dept_id is not None:
+                        role_scope = "department"
+                        role_display = "Department Staff"
+                    else:
+                        role_scope = "unassigned"
+                        role_display = "Staff"
+                elif role_str == "dean":
+                    role_scope = "school"
+                    role_display = "School Dean"
+                elif role_str == "hod":
+                    role_scope = "department"
+                    role_display = "Head of Department"
+                elif role_str == "admin":
+                    role_scope = "global"
+                    role_display = "Admin"
+                elif role_str == "student":
+                    role_scope = "student"
+                    role_display = "Student"
+                elif role_str:
+                    role_scope = "department"
+                    role_display = role_str.replace("_", " ").title()
+
+            data["role_scope"] = role_scope
+            data["role_display"] = role_display
             return data
 
         # 1. Initialize variables
@@ -111,11 +150,42 @@ class UserRead(UserBase):
                 sch_code = getattr(student_obj.school, "code", None)
 
         # 3. Return the fully populated dictionary
+        role_scope = None
+        role_display = None
+
+        if role_str == "staff":
+            if sch_id is not None:
+                role_scope = "school_office"
+                role_display = "School Office Staff"
+            elif dept_id is not None:
+                role_scope = "department"
+                role_display = "Department Staff"
+            else:
+                role_scope = "unassigned"
+                role_display = "Staff"
+        elif role_str == "dean":
+            role_scope = "school"
+            role_display = "School Dean"
+        elif role_str == "hod":
+            role_scope = "department"
+            role_display = "Head of Department"
+        elif role_str == "admin":
+            role_scope = "global"
+            role_display = "Admin"
+        elif role_str == "student":
+            role_scope = "student"
+            role_display = "Student"
+        elif role_str:
+            role_scope = "department"
+            role_display = role_str.replace("_", " ").title()
+
         return {
             "id": data.id,
             "name": data.name,
             "email": data.email,
             "role": data.role,
+            "role_scope": role_scope,
+            "role_display": role_display,
             
             # IDs
             "department_id": dept_id,

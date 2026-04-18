@@ -86,6 +86,24 @@ def _role_value(role) -> str:
     return role.value if hasattr(role, "value") else role
 
 
+def _dept_display_name(raw_name: Optional[str]) -> str:
+    """Normalize internal department labels into UI-friendly names."""
+    value = (raw_name or "").strip().lower()
+    if value in {"lab", "labs", "laboratories", "laboratory"}:
+        return "Laboratories"
+    if value in {"account", "accounts"}:
+        return "Accounts"
+    if value == "crc":
+        return "CRC"
+    if value == "dean":
+        return "School Dean"
+    if value == "hod":
+        return "Head of Department"
+    if not value:
+        return "Unknown"
+    return " ".join(part.capitalize() for part in value.replace("_", " ").split())
+
+
 async def _resolve_school_code(session: AsyncSession, code: str) -> School:
     """Resolve a school code to a School ORM object. Raises 400 if not found."""
     res = await session.execute(
@@ -637,7 +655,91 @@ async def get_all_users(
     paginated = base_query.limit(page_size).offset(offset)
     users = (await session.execute(paginated)).scalars().all()
 
-    return {"total": total, "users": users}
+    dept_ids = {u.department_id for u in users if u.department_id is not None}
+    school_ids = {u.school_id for u in users if u.school_id is not None}
+    school_ids.update(
+        u.student.school_id
+        for u in users
+        if u.student is not None and u.student.school_id is not None
+    )
+
+    dept_map = {}
+    if dept_ids:
+        dept_rows = await session.execute(
+            select(Department.id, Department.name, Department.code).where(Department.id.in_(dept_ids))
+        )
+        dept_map = {row[0]: {"name": row[1], "code": row[2]} for row in dept_rows.all()}
+
+    school_map = {}
+    if school_ids:
+        school_rows = await session.execute(
+            select(School.id, School.name, School.code).where(School.id.in_(school_ids))
+        )
+        school_map = {row[0]: {"name": row[1], "code": row[2]} for row in school_rows.all()}
+
+    serialized_users = []
+    for u in users:
+        role_str = str(u.role.value if hasattr(u.role, "value") else u.role).lower()
+        school_id = u.school_id
+
+        if "student" in role_str and u.student and u.student.school_id is not None:
+            school_id = u.student.school_id
+
+        dept_obj = dept_map.get(u.department_id) if u.department_id is not None else None
+        school_obj = school_map.get(school_id) if school_id is not None else None
+
+        if role_str == "staff":
+            if school_id is not None:
+                role_scope = "school_office"
+                role_display = "School Office Staff"
+            elif u.department_id is not None:
+                role_scope = "department"
+                role_display = "Department Staff"
+            else:
+                role_scope = "unassigned"
+                role_display = "Staff"
+        elif role_str == "dean":
+            role_scope = "school"
+            role_display = "School Dean"
+        elif role_str == "hod":
+            role_scope = "department"
+            role_display = "Head of Department"
+        elif role_str == "admin":
+            role_scope = "global"
+            role_display = "Admin"
+        elif role_str == "student":
+            role_scope = "student"
+            role_display = "Student"
+        else:
+            role_scope = "department"
+            role_display = role_str.replace("_", " ").title()
+
+        serialized_users.append(
+            {
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "role": u.role,
+                "role_scope": role_scope,
+                "role_display": role_display,
+                "department_id": u.department_id,
+                "school_id": school_id,
+                "department_name": (u.department.name if u.department else None) or (dept_obj["name"] if dept_obj else None),
+                "school_name": (
+                    (u.student.school.name if ("student" in role_str and u.student and u.student.school) else None)
+                    or (u.school.name if u.school else None)
+                    or (school_obj["name"] if school_obj else None)
+                ),
+                "department_code": (getattr(u.department, "code", None)) or (dept_obj["code"] if dept_obj else None),
+                "school_code": (
+                    (getattr(u.student.school, "code", None) if ("student" in role_str and u.student and u.student.school) else None)
+                    or (getattr(u.school, "code", None) if u.school else None)
+                    or (school_obj["code"] if school_obj else None)
+                ),
+            }
+        )
+
+    return {"total": total, "users": serialized_users}
 
 
 @router.delete("/users/{user_id}", status_code=204)
@@ -894,30 +996,39 @@ async def get_department_performance(
     Returns per-department performance stats using ORM constructs
     instead of raw SQL to stay within SQLAlchemy's type safety guarantees.
     """
-    # Normalise department display name via CASE in ORM
-    dept_label = case(
-        (func.lower(func.coalesce(Department.name, ApplicationStage.verifier_role)).in_(
-            ["lab", "labs", "laboratories", "laboratory"]
-        ), "Laboratories"),
-        (func.lower(func.coalesce(Department.name, ApplicationStage.verifier_role)).in_(
-            ["account", "accounts"]
-        ), "Accounts"),
-        (func.lower(func.coalesce(Department.name, ApplicationStage.verifier_role)) == "crc", "CRC"),
-        (func.lower(func.coalesce(Department.name, ApplicationStage.verifier_role)) == "dean", "School Dean"),
-        (func.lower(func.coalesce(Department.name, ApplicationStage.verifier_role)) == "hod", "Head of Department"),
-        else_=func.initcap(func.coalesce(Department.name, ApplicationStage.verifier_role)),
-    ).label("dept_name")
+    dept_key = func.lower(
+        func.coalesce(Department.name, ApplicationStage.verifier_role)
+    ).label("dept_key")
+    role_key = func.lower(ApplicationStage.verifier_role).label("role_key")
+    school_code = School.code.label("school_code")
+    dept_code = Department.code.label("dept_code")
 
-    resolution_hours = (
-        func.extract(
-            "epoch",
-            ApplicationStage.updated_at - ApplicationStage.created_at,
-        ) / 3600
-    )
+    dialect_name = ""
+    if session.bind and getattr(session.bind, "dialect", None):
+        dialect_name = session.bind.dialect.name
+
+    if dialect_name.startswith("mysql"):
+        resolution_hours = (
+            func.timestampdiff(
+                text("SECOND"),
+                ApplicationStage.created_at,
+                ApplicationStage.updated_at,
+            ) / 3600.0
+        )
+    else:
+        resolution_hours = (
+            func.extract(
+                "epoch",
+                ApplicationStage.updated_at - ApplicationStage.created_at,
+            ) / 3600.0
+        )
 
     stmt = (
         select(
-            dept_label,
+            dept_key,
+            role_key,
+            school_code,
+            dept_code,
             func.coalesce(
                 func.avg(
                     case(
@@ -944,14 +1055,81 @@ async def get_department_performance(
             ).label("total_processed"),
         )
         .outerjoin(Department, ApplicationStage.department_id == Department.id)
-        .group_by(dept_label)
+        .outerjoin(School, ApplicationStage.school_id == School.id)
+        .group_by(dept_key, role_key, school_code, dept_code)
         .order_by(func.count(
             case((ApplicationStage.status == "pending", 1), else_=None)
         ).desc())
     )
 
     rows = (await session.execute(stmt)).mappings().all()
-    return [dict(row) for row in rows]
+    grouped: Dict[str, Dict[str, float]] = {}
+
+    for row in rows:
+        raw_key = (row.get("dept_key") or "").strip().lower()
+        raw_role = (row.get("role_key") or "").strip().lower()
+        code = (row.get("school_code") or "").strip().upper()
+        department_code = (row.get("dept_code") or "").strip().upper()
+
+        if raw_role == "staff" and raw_key and raw_key != "staff":
+            # Department-scoped staff (Library/Hostel/Lab/Accounts/etc) should
+            # stay separated by their actual department name.
+            dept_name = _dept_display_name(row.get("dept_key"))
+        elif raw_role == "hod" and raw_key and raw_key != "hod":
+            # Show HOD with short department code (e.g., CSE HOD).
+            dept_name = f"{department_code} HOD" if department_code else f"{_dept_display_name(row.get('dept_key'))} HOD"
+        elif raw_role == "staff" and code:
+            # School-office staff without department routing.
+            dept_name = f"{code} Office"
+        elif raw_role == "dean" and code:
+            dept_name = f"{code} Dean"
+        elif raw_role == "staff":
+            dept_name = "School Office Staff"
+        elif raw_role == "dean":
+            dept_name = "School Dean"
+        elif raw_role == "hod":
+            dept_name = "Head of Department"
+        else:
+            dept_name = _dept_display_name(row.get("dept_key"))
+
+        avg_hours = float(row.get("avg_hours") or 0)
+        pending_count = int(row.get("pending_count") or 0)
+        rejected_count = int(row.get("rejected_count") or 0)
+        approved_count = int(row.get("approved_count") or 0)
+        total_processed = int(row.get("total_processed") or 0)
+
+        if dept_name not in grouped:
+            grouped[dept_name] = {
+                "weighted_hours_sum": 0.0,
+                "pending_count": 0,
+                "rejected_count": 0,
+                "approved_count": 0,
+                "total_processed": 0,
+            }
+
+        grouped[dept_name]["weighted_hours_sum"] += avg_hours * total_processed
+        grouped[dept_name]["pending_count"] += pending_count
+        grouped[dept_name]["rejected_count"] += rejected_count
+        grouped[dept_name]["approved_count"] += approved_count
+        grouped[dept_name]["total_processed"] += total_processed
+
+    result = []
+    for label, data in grouped.items():
+        processed = int(data["total_processed"])
+        avg_hours = (data["weighted_hours_sum"] / processed) if processed > 0 else 0.0
+        result.append(
+            {
+                "dept_name": label,
+                "avg_hours": float(avg_hours),
+                "pending_count": int(data["pending_count"]),
+                "rejected_count": int(data["rejected_count"]),
+                "approved_count": int(data["approved_count"]),
+                "total_processed": processed,
+            }
+        )
+
+    result.sort(key=lambda x: x["pending_count"], reverse=True)
+    return result
 
 
 # ---------------------------------------------------------------------------
